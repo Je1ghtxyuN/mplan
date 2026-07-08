@@ -79,6 +79,31 @@ class Store:
                 (int(completed), datetime.now(UTC).isoformat(), item_id),
             )
 
+    def attach_external_event_id(self, item_id: str, event_id: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                update planner_items
+                set external_event_id = ?, updated_at = ?
+                where id = ?
+                """,
+                (event_id, datetime.now(UTC).isoformat(), item_id),
+            )
+
+    def list_days_in_month(self, year: int, month: int) -> list[date]:
+        month_prefix = f"{year:04d}-{month:02d}-"
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                """
+                select distinct day
+                from planner_items
+                where day like ?
+                order by day
+                """,
+                (f"{month_prefix}%",),
+            ).fetchall()
+        return [date.fromisoformat(row[0]) for row in rows]
+
     def _planner_item_from_row(self, row: tuple[str, str, str, str, int, str, str, str | None]) -> PlannerItem:
         return PlannerItem(
             id=row[0],
