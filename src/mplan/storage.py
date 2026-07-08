@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from mplan.models import PlannerItem
@@ -76,7 +76,7 @@ class Store:
                 set completed = ?, updated_at = ?
                 where id = ?
                 """,
-                (int(completed), datetime.now().astimezone().isoformat(), item_id),
+                (int(completed), datetime.now(UTC).isoformat(), item_id),
             )
 
     def _planner_item_from_row(self, row: tuple[str, str, str, str, int, str, str, str | None]) -> PlannerItem:
