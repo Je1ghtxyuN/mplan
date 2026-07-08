@@ -30,3 +30,53 @@ def test_owned_event_title_includes_completion_prefix(monkeypatch):
 
     bridge.upsert_owned_event(item, order_index=0)
     assert "✓ 早｜看论文" in captured["script"]
+    assert 'tell application "Calendar"' in captured["script"]
+
+
+def test_list_script_targets_calendar_and_month_bounds():
+    bridge = CalendarBridge()
+
+    script = bridge._list_script(date(2026, 7, 1), date(2026, 7, 31))
+    assert 'tell application "Calendar"' in script
+    assert "set year of rangeStart to 2026" in script
+    assert "set month of rangeStart to 7" in script
+    assert "set day of rangeStart to 1" in script
+    assert "set day of rangeEnd to 31" in script
+
+
+def test_upsert_uses_existing_event_id_when_present(monkeypatch):
+    bridge = CalendarBridge()
+    item = PlannerItem.new(day=date(2026, 7, 12), bucket="晚", text="整理材料")
+    item = PlannerItem(
+        id=item.id,
+        day=item.day,
+        bucket=item.bucket,
+        text=item.text,
+        completed=item.completed,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        external_event_id="evt-123",
+    )
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: captured.setdefault("script", script) or "evt-123",
+    )
+
+    bridge.upsert_owned_event(item, order_index=1)
+    assert "evt-123" in captured["script"]
+
+
+def test_delete_targets_calendar_event(monkeypatch):
+    bridge = CalendarBridge()
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: captured.setdefault("script", script) or "ok",
+    )
+
+    bridge.delete_owned_event("evt-456")
+    assert 'tell application "Calendar"' in captured["script"]
+    assert "evt-456" in captured["script"]

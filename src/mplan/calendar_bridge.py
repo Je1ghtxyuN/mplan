@@ -74,18 +74,53 @@ class CalendarBridge:
             },
             ensure_ascii=False,
         )
+        external_event_id = item.external_event_id or ""
         script = f"""
+{self._applescript_date("eventStart", starts_at)}
+{self._applescript_date("eventEnd", ends_at)}
 set eventTitle to "{self._escape(title)}"
 set eventNotes to "{self._escape(metadata)}"
-set eventStart to date "{starts_at.strftime('%A, %B %d, %Y at %H:%M:%S')}"
-set eventEnd to date "{ends_at.strftime('%A, %B %d, %Y at %H:%M:%S')}"
-return eventTitle
+set targetEventId to "{self._escape(external_event_id)}"
+tell application "Calendar"
+    set writableCalendars to every calendar whose writable is true
+    if (count of writableCalendars) is 0 then error "No writable Calendar calendars available"
+    set targetCalendar to item 1 of writableCalendars
+    set targetEvent to missing value
+    if targetEventId is not "" then
+        repeat with cal in calendars
+            try
+                set targetEvent to first event of cal whose uid is targetEventId
+                exit repeat
+            end try
+        end repeat
+    end if
+    if targetEvent is missing value then
+        set targetEvent to make new event at end of events of targetCalendar with properties {{summary:eventTitle, start date:eventStart, end date:eventEnd, description:eventNotes}}
+    else
+        set summary of targetEvent to eventTitle
+        set start date of targetEvent to eventStart
+        set end date of targetEvent to eventEnd
+        set description of targetEvent to eventNotes
+    end if
+    return uid of targetEvent
+end tell
 """
-        self._run_script(script)
-        return item.external_event_id or item.id
+        return self._run_script(script)
 
     def delete_owned_event(self, event_id: str) -> None:
-        script = f'return "delete:{self._escape(event_id)}"'
+        script = f"""
+set targetEventId to "{self._escape(event_id)}"
+tell application "Calendar"
+    repeat with cal in calendars
+        try
+            set targetEvent to first event of cal whose uid is targetEventId
+            delete targetEvent
+            return "ok"
+        end try
+    end repeat
+end tell
+return "missing"
+"""
         self._run_script(script)
 
     def healthcheck(self) -> tuple[bool, str]:
@@ -96,11 +131,81 @@ return eventTitle
         return True, result or "Calendar automation available"
 
     def _list_script(self, month_start: date, month_end: date) -> str:
+        range_start = datetime.combine(month_start, time(0, 0, 0))
+        range_end = datetime.combine(month_end, time(23, 59, 59))
         return f"""
-set monthStart to "{month_start.isoformat()}"
-set monthEnd to "{month_end.isoformat()}"
-return "[]"
+{self._applescript_date("rangeStart", range_start)}
+{self._applescript_date("rangeEnd", range_end)}
+tell application "Calendar"
+    set jsonParts to {{}}
+    repeat with cal in calendars
+        set matchingEvents to every event of cal whose start date ≥ rangeStart and start date ≤ rangeEnd
+        repeat with evt in matchingEvents
+            set eventJson to "{{" & ¬
+                "\\"id\\":\\"" & my escape_json(uid of evt) & "\\"," & ¬
+                "\\"title\\":\\"" & my escape_json(summary of evt) & "\\"," & ¬
+                "\\"all_day\\":" & my bool_to_json(allday event of evt) & "," & ¬
+                "\\"starts_at\\":\\"" & my iso_datetime(start date of evt) & "\\"," & ¬
+                "\\"ends_at\\":\\"" & my iso_datetime(end date of evt) & "\\"," & ¬
+                "\\"calendar_name\\":\\"" & my escape_json(name of cal) & "\\"," & ¬
+                "\\"notes\\":" & my nullable_text(description of evt) & "}}"
+            copy eventJson to end of jsonParts
+        end repeat
+    end repeat
+    if (count of jsonParts) is 0 then return "[]"
+    set AppleScript's text item delimiters to ","
+    set payload to "[" & (jsonParts as text) & "]"
+    set AppleScript's text item delimiters to ""
+    return payload
+end tell
+
+on bool_to_json(flagValue)
+    if flagValue then return "true"
+    return "false"
+end bool_to_json
+
+on nullable_text(textValue)
+    if textValue is missing value then return "null"
+    if textValue is "" then return "null"
+    return "\\"" & my escape_json(textValue) & "\\""
+end nullable_text
+
+on iso_datetime(theDate)
+    set yyyy to year of theDate as integer
+    set mm to text -2 thru -1 of ("0" & (month of theDate as integer))
+    set dd to text -2 thru -1 of ("0" & day of theDate)
+    set hh to text -2 thru -1 of ("0" & hours of theDate)
+    set mi to text -2 thru -1 of ("0" & minutes of theDate)
+    set ss to text -2 thru -1 of ("0" & seconds of theDate)
+    return (yyyy as text) & "-" & mm & "-" & dd & "T" & hh & ":" & mi & ":" & ss
+end iso_datetime
+
+on escape_json(textValue)
+    set escapedText to my replace_text(textValue, "\\\\", "\\\\\\\\")
+    set escapedText to my replace_text(escapedText, "\\"", "\\\\\\"")
+    set escapedText to my replace_text(escapedText, return, "\\\\n")
+    set escapedText to my replace_text(escapedText, linefeed, "\\\\n")
+    return escapedText
+end escape_json
+
+on replace_text(theText, searchString, replacementString)
+    set AppleScript's text item delimiters to searchString
+    set textItems to every text item of theText
+    set AppleScript's text item delimiters to replacementString
+    set theText to textItems as text
+    set AppleScript's text item delimiters to ""
+    return theText
+end replace_text
 """
 
     def _escape(self, value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def _applescript_date(self, variable_name: str, value: datetime) -> str:
+        return f"""
+set {variable_name} to current date
+set year of {variable_name} to {value.year}
+set month of {variable_name} to {value.month}
+set day of {variable_name} to {value.day}
+set time of {variable_name} to ({value.hour} * hours + {value.minute} * minutes + {value.second})
+""".strip()
