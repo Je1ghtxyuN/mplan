@@ -1,4 +1,5 @@
-from dataclasses import replace
+import json
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 
 from mplan.models import PlannerItem
@@ -54,6 +55,12 @@ class FakeBridge:
         return list(self.imports)
 
 
+@dataclass(frozen=True)
+class FakeImportedEvent:
+    title: str
+    notes: str | None = None
+
+
 def test_push_day_creates_one_event_per_planner_item():
     item_a = PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="看论文")
     item_b = PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="回消息")
@@ -94,3 +101,37 @@ def test_sync_month_reports_imported_and_exported_counts():
     assert report.imported_count == 1
     assert report.exported_count == 1
     assert report.updated_count == 0
+
+
+def test_pull_month_excludes_mplan_owned_imports():
+    fake_store = FakeStore()
+    fake_bridge = FakeBridge()
+    fake_bridge.imports = [
+        FakeImportedEvent(title="腾讯会议"),
+        FakeImportedEvent(
+            title="早｜看论文",
+            notes=json.dumps(
+                {"source": "mplan", "item_id": "planner-1"}, ensure_ascii=False
+            ),
+        ),
+    ]
+
+    engine = SyncEngine(fake_store, fake_bridge)
+    events = engine.pull_month(2026, 7)
+
+    assert [event.title for event in events] == ["腾讯会议"]
+
+
+def test_push_day_uses_completion_prefix_for_completed_item():
+    completed_item = PlannerItem.new(
+        day=date(2026, 7, 12), bucket="晚", text="整理材料"
+    ).with_completed(True)
+    fake_store = FakeStore()
+    fake_store.seed_items([completed_item])
+    fake_bridge = FakeBridge()
+
+    engine = SyncEngine(fake_store, fake_bridge)
+    result = engine.push_day(date(2026, 7, 12))
+
+    assert result is None
+    assert fake_bridge.upserts[0]["title"] == "✓ 晚｜整理材料"
