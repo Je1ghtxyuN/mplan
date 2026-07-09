@@ -1,6 +1,7 @@
 import calendar
 from dataclasses import dataclass
 from datetime import date
+from textwrap import wrap
 
 
 @dataclass(frozen=True)
@@ -65,15 +66,47 @@ def build_month_grid(
 
 
 def render_day_cell(cell: DayCell, width: int, height: int) -> list[str]:
-    day_label = str(cell.day.day)
-    if cell.selected:
-        day_label = f"[{day_label}]"
-    lines = [day_label]
+    inner_width = max(4, width - 2)
+    content_height = max(1, height - 2)
+
+    content_lines: list[str] = []
+    day_label = f"[{cell.day.day}]" if cell.selected else str(cell.day.day)
+    content_lines.append(day_label)
     if not cell.in_month:
-        lines.append("(其他月)")
-    lines.append("正式:")
-    lines.extend(cell.imported_events[:2] or [""])
-    lines.append("早: " + " / ".join(cell.morning[:2]))
-    lines.append("午: " + " / ".join(cell.afternoon[:2]))
-    lines.append("晚: " + " / ".join(cell.evening[:2]))
-    return [line[:width].ljust(width) for line in lines[:height]]
+        content_lines.append("(其他月)")
+
+    content_lines.extend(_wrap_block("正式:", cell.imported_events, inner_width))
+    content_lines.extend(_wrap_block("早:", cell.morning, inner_width))
+    content_lines.extend(_wrap_block("午:", cell.afternoon, inner_width))
+    content_lines.extend(_wrap_block("晚:", cell.evening, inner_width))
+
+    overflowed = len(content_lines) > content_height
+    visible = content_lines[:content_height]
+    if overflowed and content_height >= 2:
+        visible = content_lines[: content_height - 1]
+        visible.append(f"... v {cell.day.day}")
+
+    while len(visible) < content_height:
+        visible.append("")
+
+    boxed = ["+" + "-" * inner_width + "+"]
+    boxed.extend("|" + line[:inner_width].ljust(inner_width) + "|" for line in visible)
+    boxed.append("+" + "-" * inner_width + "+")
+    return boxed
+
+
+def _wrap_block(label: str, items: list[str], width: int) -> list[str]:
+    lines = [label]
+    if not items:
+        return lines
+    for item in items:
+        wrapped = wrap(
+            item,
+            width=max(1, width - 2),
+            break_long_words=True,
+            break_on_hyphens=False,
+        ) or [item]
+        first, *rest = wrapped
+        lines.append(f"  {first}")
+        lines.extend(f"  {chunk}" for chunk in rest)
+    return lines

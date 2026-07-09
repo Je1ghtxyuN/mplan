@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date
+import shutil
 
 from mplan.day_editor import edit_day
 from mplan.month_grid import DayViewModel, build_month_grid, render_day_cell
@@ -13,7 +14,7 @@ def run_app(store, sync_engine) -> int:
     while True:
         _print_month(store, sync_engine, current.year, current.month, selected)
         command = input(
-            "\n命令: [n]下月 [p]上月 [e DD]编辑 [s]同步 [q]退出 > "
+            "\n命令: [n]下月 [p]上月 [e DD]编辑 [v DD]查看 [s]同步 [q]退出 > "
         ).strip()
         if command == "q":
             return 0
@@ -41,6 +42,17 @@ def run_app(store, sync_engine) -> int:
                     print("日期无效")
             else:
                 print("用法: e 12")
+            continue
+        if command.startswith("v"):
+            parts = command.split()
+            if len(parts) == 2 and parts[1].isdigit():
+                try:
+                    selected = date(current.year, current.month, int(parts[1]))
+                    _print_day_details(store, sync_engine, selected)
+                except ValueError:
+                    print("日期无效")
+            else:
+                print("用法: v 12")
             continue
         print("未知命令")
 
@@ -78,15 +90,42 @@ def _print_month(store, sync_engine, year: int, month: int, selected_day: date) 
             )
 
     grid = build_month_grid(year, month, selected_day=selected_day, day_data=day_data)
+    columns = shutil.get_terminal_size((180, 40)).columns
+    cell_width = max(18, min(28, columns // 7 - 1))
+    cell_height = 10
+    weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     print(f"\n{year}-{month:02d}")
-    print(" Mon                Tue                Wed                Thu                Fri                Sat                Sun")
-    cell_width = 18
-    cell_height = 8
+    print("".join(name.center(cell_width) for name in weekday_names))
     for week in grid.weeks:
         rendered = [render_day_cell(cell, width=cell_width, height=cell_height) for cell in week]
         for row in range(cell_height):
-            print(" ".join(cell[row] if row < len(cell) else " " * cell_width for cell in rendered))
-        print()
+            print("".join(cell[row] for cell in rendered))
+
+
+def _print_day_details(store, sync_engine, day: date) -> None:
+    print(f"\n{day.isoformat()} 完整内容")
+    imported = [
+        event
+        for event in sync_engine.pull_month(day.year, day.month)
+        if event.starts_at.date() == day
+    ]
+    print("正式日程:")
+    if imported:
+        for event in imported:
+            print(f"  - {event.starts_at.strftime('%H:%M')} {event.title}")
+    else:
+        print("  (空)")
+
+    items = store.list_day_items(day)
+    for bucket in ("早", "午", "晚"):
+        print(f"{bucket}:")
+        bucket_items = [item for item in items if item.bucket == bucket]
+        if bucket_items:
+            for idx, item in enumerate(bucket_items, start=1):
+                prefix = "✓ " if item.completed else ""
+                print(f"  {idx}. {prefix}{item.text}")
+        else:
+            print("  (空)")
 
 
 def _shift_month(current: date, delta: int) -> date:
