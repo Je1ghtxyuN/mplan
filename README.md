@@ -31,6 +31,19 @@ mplan sync
 mplan doctor
 ```
 
+## TUI Controls
+
+```bash
+mplan
+```
+
+- Arrow keys move between days
+- `Tab` switches `早 / 午 / 晚`
+- `i` enters insert mode for the selected bucket
+- `Esc` saves the selected bucket locally and returns to normal mode
+- `s` syncs the visible month with Calendar
+- `q` quits
+
 ## Notes
 
 - The project is designed for macOS because it automates Calendar.app with AppleScript.

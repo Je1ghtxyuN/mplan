@@ -1,7 +1,6 @@
 import argparse
 from datetime import date
 
-from mplan.app import run_app
 from mplan.calendar_bridge import CalendarBridge
 from mplan.config import default_db_path, ensure_data_dir
 from mplan.day_editor import mark_item_done
@@ -9,12 +8,13 @@ from mplan.doctor import run_doctor
 from mplan.models import PlannerItem
 from mplan.storage import Store
 from mplan.sync import SyncEngine
+from mplan.tui import run_tui
 
 
 def launch_app() -> int:
     store = build_store()
     sync_engine = build_sync_engine(store)
-    return run_app(store, sync_engine)
+    return run_tui(store, sync_engine)
 
 
 def build_parser() -> argparse.ArgumentParser:

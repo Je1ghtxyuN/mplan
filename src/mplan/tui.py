@@ -62,7 +62,7 @@ def handle_keypress(
         return replace(state, edit_buffer=state.edit_buffer[:-1]), False
     if key == curses.KEY_ENTER:
         return state, False
-    if 32 <= key <= 126 or key > 127:
+    if 32 <= key < curses.KEY_MIN:
         return replace(state, edit_buffer=f"{state.edit_buffer}{chr(key)}"), False
     return state, False
 

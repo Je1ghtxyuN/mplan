@@ -1,4 +1,4 @@
-from mplan.cli import build_parser, main
+from mplan.cli import build_parser, launch_app, main
 
 
 def test_build_parser_supports_expected_subcommands():
@@ -17,6 +17,19 @@ def test_main_defaults_to_app_launch(monkeypatch):
     monkeypatch.setattr("mplan.cli.launch_app", lambda: calls.append("launch") or 0)
     assert main([]) == 0
     assert calls == ["launch"]
+
+
+def test_launch_app_uses_tui_runtime(monkeypatch):
+    calls = []
+    monkeypatch.setattr("mplan.cli.build_store", lambda: "store")
+    monkeypatch.setattr("mplan.cli.build_sync_engine", lambda store: ("sync", store))
+    monkeypatch.setattr(
+        "mplan.cli.run_tui",
+        lambda store, sync_engine: calls.append((store, sync_engine)) or 0,
+    )
+
+    assert launch_app() == 0
+    assert calls == [("store", ("sync", "store"))]
 
 
 def test_add_command_routes_to_add_handler(monkeypatch):

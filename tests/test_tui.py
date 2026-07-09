@@ -62,6 +62,30 @@ def test_handle_keypress_s_runs_month_sync():
     assert should_quit is False
 
 
+def test_handle_keypress_escape_saves_and_returns_to_normal(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "mplan.tui.save_bucket_text",
+        lambda store, day, bucket, raw: calls.append((day, bucket, raw)) or ["看论文"],
+    )
+    state = enter_insert_mode(
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        "看论文",
+    )
+
+    updated, should_quit = handle_keypress(
+        state,
+        27,
+        DummyStore(),
+        DummySyncEngine(),
+    )
+
+    assert calls == [(date(2026, 7, 12), "早", "看论文")]
+    assert updated.mode == "NORMAL"
+    assert updated.status_message == "已保存"
+    assert should_quit is False
+
+
 def test_handle_keypress_enter_keeps_insert_buffer_single_line():
     state = enter_insert_mode(
         TuiState.initial(selected_day=date(2026, 7, 12)),
@@ -77,6 +101,23 @@ def test_handle_keypress_enter_keeps_insert_buffer_single_line():
 
     assert updated.edit_buffer == "看论文"
     assert "\n" not in updated.edit_buffer
+    assert should_quit is False
+
+
+def test_handle_keypress_special_key_does_not_append_to_insert_buffer():
+    state = enter_insert_mode(
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        "看论文",
+    )
+
+    updated, should_quit = handle_keypress(
+        state,
+        curses.KEY_LEFT,
+        DummyStore(),
+        DummySyncEngine(),
+    )
+
+    assert updated.edit_buffer == "看论文"
     assert should_quit is False
 
 
