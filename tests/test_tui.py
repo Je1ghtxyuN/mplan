@@ -1,8 +1,9 @@
+import curses
 from datetime import date
 from types import SimpleNamespace
 
 from mplan.tui import _draw_screen, _view_to_lines, handle_keypress
-from mplan.tui_state import TuiState
+from mplan.tui_state import TuiState, enter_insert_mode
 
 
 class DummyStore:
@@ -58,6 +59,24 @@ def test_handle_keypress_s_runs_month_sync():
 
     assert sync_engine.calls == [(2026, 7)]
     assert "已同步" in updated.status_message
+    assert should_quit is False
+
+
+def test_handle_keypress_enter_keeps_insert_buffer_single_line():
+    state = enter_insert_mode(
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        "看论文",
+    )
+
+    updated, should_quit = handle_keypress(
+        state,
+        curses.KEY_ENTER,
+        DummyStore(),
+        DummySyncEngine(),
+    )
+
+    assert updated.edit_buffer == "看论文"
+    assert "\n" not in updated.edit_buffer
     assert should_quit is False
 
 
