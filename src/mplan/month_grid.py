@@ -21,6 +21,7 @@ class DayCell:
     evening: list[str]
     in_month: bool
     selected: bool
+    selected_bucket: str | None = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ def build_month_grid(
     month: int,
     selected_day: date,
     day_data: dict[date, DayViewModel],
+    selected_bucket: str = "早",
 ) -> MonthGrid:
     cal = calendar.Calendar(firstweekday=0)
     weeks: list[list[DayCell]] = []
@@ -59,6 +61,7 @@ def build_month_grid(
                     evening=model.evening,
                     in_month=(day.month == month),
                     selected=(day == selected_day),
+                    selected_bucket=selected_bucket if day == selected_day else None,
                 )
             )
         weeks.append(rendered_week)

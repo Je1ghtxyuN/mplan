@@ -62,6 +62,39 @@ def test_build_month_grid_creates_calendar_rows():
     assert selected.afternoon == ["改简历"]
 
 
+def test_build_month_grid_marks_selected_bucket_on_selected_day():
+    grid = build_month_grid(
+        2026,
+        7,
+        selected_day=date(2026, 7, 12),
+        selected_bucket="午",
+        day_data={
+            date(2026, 7, 12): DayViewModel(
+                imported_events=[],
+                morning=["看论文"],
+                afternoon=["改简历"],
+                evening=[],
+            )
+        },
+    )
+    selected = next(cell for week in grid.weeks for cell in week if cell.selected)
+    assert selected.selected_bucket == "午"
+
+
+def test_build_month_grid_does_not_mark_bucket_on_unselected_days():
+    grid = build_month_grid(
+        2026,
+        7,
+        selected_day=date(2026, 7, 12),
+        selected_bucket="晚",
+        day_data={},
+    )
+    other = next(
+        cell for week in grid.weeks for cell in week if cell.day == date(2026, 7, 13)
+    )
+    assert other.selected_bucket is None
+
+
 def test_render_day_cell_wraps_long_text_without_overflow():
     cell = DayCell(
         day=date(2026, 7, 12),
