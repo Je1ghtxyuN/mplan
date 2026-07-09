@@ -63,6 +63,57 @@ def test_build_screen_view_puts_active_edit_buffer_in_footer_in_insert_mode(tmp_
     assert "editor_text" not in view
 
 
+def test_build_screen_view_leaves_room_for_footer_under_small_height(tmp_path):
+    store = Store(tmp_path / "mplan.db")
+    store.initialize()
+    for day_number in range(1, 20):
+        store.upsert_planner_item(
+            PlannerItem.new(
+                day=date(2026, 7, day_number),
+                bucket="早",
+                text=f"事项{day_number}",
+            )
+        )
+    state = replace(
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        status_message="已保存",
+    )
+
+    view = build_screen_view(
+        store,
+        SyncEngine(store, DummyBridge()),
+        state,
+        width=140,
+        height=6,
+    )
+
+    assert len(view["body"]) <= 4
+    rendered_lines = [view["header"], *view["body"], view["footer"]]
+    assert len(rendered_lines) <= 6
+    assert "已保存" in rendered_lines[-1]
+
+
+def test_build_screen_view_keeps_footer_single_line_when_edit_buffer_has_newlines(tmp_path):
+    store = Store(tmp_path / "mplan.db")
+    store.initialize()
+    state = enter_insert_mode(
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        "第一行\n第二行",
+    )
+
+    view = build_screen_view(
+        store,
+        SyncEngine(store, DummyBridge()),
+        state,
+        width=140,
+        height=40,
+    )
+
+    assert "\n" not in view["footer"]
+    assert "第一行" in view["footer"]
+    assert "第二行" in view["footer"]
+
+
 def test_build_screen_view_keeps_visible_day_content_in_month_body(tmp_path):
     store = Store(tmp_path / "mplan.db")
     store.initialize()

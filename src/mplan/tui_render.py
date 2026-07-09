@@ -48,10 +48,14 @@ def build_screen_view(store, sync_engine, state, width: int, height: int) -> dic
         selected_bucket=state.selected_bucket,
     )
     layout = "compact" if width < (7 * 16 + 8) else "full"
+    body = _fit_body_to_height(
+        _build_body_lines(grid, layout, state.selected_day),
+        height=height,
+    )
 
     return {
         "header": f"{state.visible_year}-{state.visible_month:02d} {state.mode}",
-        "body": _build_body_lines(grid, layout, state.selected_day),
+        "body": body,
         "grid": grid,
         "layout": layout,
         "footer": _build_footer(store, state),
@@ -120,22 +124,32 @@ def _build_day_lines(cell: DayCell, selected_day: date) -> list[str]:
     return lines
 
 
+def _fit_body_to_height(body: list[str], height: int) -> list[str]:
+    available_lines = max(0, height - 2)
+    return body[:available_lines]
+
+
 def _build_footer(store, state) -> str:
     status_prefix = f"{state.status_message} " if state.status_message else ""
 
     if state.mode == "INSERT":
         return (
             f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} 编辑: "
-            f"{state.edit_buffer} Esc保存"
+            f"{_single_line_text(state.edit_buffer)} Esc保存"
         )
 
     current_text = load_bucket_text(store, state.selected_day, state.selected_bucket)
     if current_text:
         return (
-            f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} {current_text} "
+            f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} "
+            f"{_single_line_text(current_text)} "
             "方向键移动 Tab切换 i编辑 s同步 q退出"
         )
     return (
         f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} "
         "方向键移动 Tab切换 i编辑 s同步 q退出"
     )
+
+
+def _single_line_text(text: str) -> str:
+    return " / ".join(part for part in text.splitlines() if part) or text.replace("\n", " / ")
