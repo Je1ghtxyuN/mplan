@@ -17,3 +17,17 @@ def test_main_defaults_to_app_launch(monkeypatch):
     monkeypatch.setattr("mplan.cli.launch_app", lambda: calls.append("launch") or 0)
     assert main([]) == 0
     assert calls == ["launch"]
+
+
+def test_add_command_routes_to_add_handler(monkeypatch):
+    calls = []
+    monkeypatch.setattr("mplan.cli.handle_add", lambda args: calls.append(args.text) or 0)
+    assert main(["add", "7/12", "早", "看论文"]) == 0
+    assert calls == ["看论文"]
+
+
+def test_sync_command_routes_to_sync_handler(monkeypatch):
+    calls = []
+    monkeypatch.setattr("mplan.cli.handle_sync", lambda args: calls.append("sync") or 0)
+    assert main(["sync"]) == 0
+    assert calls == ["sync"]

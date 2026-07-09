@@ -90,6 +90,16 @@ class Store:
                 (event_id, datetime.now(UTC).isoformat(), item_id),
             )
 
+    def delete_day_bucket(self, day: date, bucket: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                delete from planner_items
+                where day = ? and bucket = ?
+                """,
+                (day.isoformat(), bucket),
+            )
+
     def list_days_in_month(self, year: int, month: int) -> list[date]:
         month_prefix = f"{year:04d}-{month:02d}-"
         with sqlite3.connect(self.db_path) as conn:
