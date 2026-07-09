@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import calendar
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
+from mplan.month_grid import build_month_grid
 from mplan.models import PlannerBucket
 
 EditorMode = Literal["NORMAL", "INSERT"]
@@ -74,8 +74,13 @@ def parse_bucket_text(raw: str) -> list[str]:
 
 
 def move_selection(state: TuiState, direction: Direction) -> TuiState:
-    cal = calendar.Calendar(firstweekday=0)
-    weeks = cal.monthdatescalendar(state.visible_year, state.visible_month)
+    month_grid = build_month_grid(
+        state.visible_year,
+        state.visible_month,
+        state.selected_day,
+        {},
+    )
+    weeks = [[cell.day for cell in week] for week in month_grid.weeks]
     row_index = 0
     col_index = 0
     for week_i, week in enumerate(weeks):

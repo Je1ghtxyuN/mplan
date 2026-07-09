@@ -1,5 +1,7 @@
 from datetime import date
+from types import SimpleNamespace
 
+import mplan.tui_state as tui_state
 from mplan.tui_state import (
     TuiState,
     cycle_bucket,
@@ -57,3 +59,28 @@ def test_move_selection_switches_visible_month_when_crossing_boundary():
     moved = move_selection(state, "right")
     assert moved.selected_day == date(2026, 8, 1)
     assert (moved.visible_year, moved.visible_month) == (2026, 8)
+
+
+def test_move_selection_uses_month_grid_abstraction(monkeypatch):
+    calls: list[tuple[int, int, date, dict[date, object]]] = []
+
+    def fake_build_month_grid(
+        year: int, month: int, selected_day: date, day_data: dict[date, object]
+    ):
+        calls.append((year, month, selected_day, day_data))
+        return SimpleNamespace(
+            weeks=[
+                [
+                    SimpleNamespace(day=date(2026, 7, 12)),
+                    SimpleNamespace(day=date(2026, 7, 13)),
+                ]
+            ]
+        )
+
+    monkeypatch.setattr(tui_state, "build_month_grid", fake_build_month_grid)
+    state = TuiState.initial(selected_day=date(2026, 7, 12))
+
+    moved = move_selection(state, "right")
+
+    assert calls == [(2026, 7, date(2026, 7, 12), {})]
+    assert moved.selected_day == date(2026, 7, 13)
