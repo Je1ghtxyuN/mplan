@@ -19,6 +19,7 @@ class ImportedEvent:
 class CalendarBridge:
     BUCKET_STARTS = {"早": time(8, 0), "午": time(13, 0), "晚": time(19, 0)}
     EVENT_DURATION_MINUTES = 30
+    SCRIPT_TIMEOUT_SECONDS = 10
 
     def _run_script(self, script: str) -> str:
         result = subprocess.run(
@@ -26,6 +27,7 @@ class CalendarBridge:
             check=True,
             capture_output=True,
             text=True,
+            timeout=self.SCRIPT_TIMEOUT_SECONDS,
         )
         return result.stdout.strip()
 
@@ -47,7 +49,10 @@ class CalendarBridge:
         self, month_start: date, month_end: date
     ) -> list[ImportedEvent]:
         script = self._list_script(month_start, month_end)
-        payload = self._run_script(script)
+        try:
+            payload = self._run_script(script)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return []
         records = json.loads(payload) if payload else []
         return [
             ImportedEvent(
@@ -126,7 +131,11 @@ return "missing"
     def healthcheck(self) -> tuple[bool, str]:
         try:
             result = self._run_script('tell application "Calendar" to return name')
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ) as exc:
             return False, str(exc)
         return True, result or "Calendar automation available"
 
