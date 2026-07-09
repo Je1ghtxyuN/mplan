@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 
-from mplan.month_grid import DayViewModel, build_month_grid
+from mplan.month_grid import DayCell, DayViewModel, build_month_grid
 from mplan.tui_store import load_bucket_text
 
 
@@ -47,18 +47,73 @@ def build_screen_view(store, sync_engine, state, width: int, height: int) -> dic
         day_data=day_data,
         selected_bucket=state.selected_bucket,
     )
+    layout = "compact" if width < (7 * 16 + 8) else "full"
 
     return {
         "header": f"{state.visible_year}-{state.visible_month:02d} {state.mode}",
+        "body": _build_body_lines(grid, layout, state.selected_day),
         "grid": grid,
-        "layout": "compact" if width < (7 * 16 + 8) else "full",
-        "footer": (
-            f"{state.selected_day.isoformat()} {state.selected_bucket} "
-            "方向键移动 Tab切换 i编辑 Esc保存 s同步 q退出"
-        ),
-        "editor_text": (
-            state.edit_buffer
-            if state.mode == "INSERT"
-            else load_bucket_text(store, state.selected_day, state.selected_bucket)
-        ),
+        "layout": layout,
+        "footer": _build_footer(store, state),
     }
+
+
+def _build_body_lines(grid, layout: str, selected_day: date) -> list[str]:
+    selected_cell = next(
+        cell for week in grid.weeks for cell in week if cell.day == selected_day
+    )
+
+    if layout == "compact":
+        return _build_selected_day_lines(selected_cell)
+
+    lines = [_format_week(week) for week in grid.weeks]
+    lines.append("")
+    lines.extend(_build_selected_day_lines(selected_cell))
+    return lines
+
+
+def _format_week(week: list[DayCell]) -> str:
+    return " ".join(_format_day(cell) for cell in week)
+
+
+def _format_day(cell: DayCell) -> str:
+    day_text = f"{cell.day.day:02d}"
+    if not cell.in_month:
+        return f"({day_text})"
+    if cell.selected:
+        return f"[{day_text}]"
+    return f" {day_text} "
+
+
+def _build_selected_day_lines(cell: DayCell) -> list[str]:
+    lines = [f"{cell.day.isoformat()} {cell.selected_bucket or '早'}"]
+    lines.extend(_section_lines("正式", cell.imported_events))
+    lines.extend(_section_lines("早", cell.morning))
+    lines.extend(_section_lines("午", cell.afternoon))
+    lines.extend(_section_lines("晚", cell.evening))
+    return lines
+
+
+def _section_lines(label: str, items: list[str]) -> list[str]:
+    if not items:
+        return [f"{label}: -"]
+    return [f"{label}: {items[0]}", *(f"  {item}" for item in items[1:])]
+
+
+def _build_footer(store, state) -> str:
+    if state.mode == "INSERT":
+        return (
+            f"{state.selected_day.isoformat()} {state.selected_bucket} 编辑: "
+            f"{state.edit_buffer} Esc保存"
+        )
+
+    current_text = load_bucket_text(store, state.selected_day, state.selected_bucket)
+    if current_text:
+        return (
+            f"{state.selected_day.isoformat()} {state.selected_bucket} {current_text} "
+            "方向键移动 Tab切换 i编辑 s同步 q退出"
+        )
+    return (
+        f"{state.selected_day.isoformat()} {state.selected_bucket} "
+        "方向键移动 Tab切换 i编辑 s同步 q退出"
+    )

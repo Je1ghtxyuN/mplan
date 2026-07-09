@@ -29,10 +29,13 @@ def test_build_screen_view_returns_footer_hints_in_normal_mode(tmp_path):
     )
 
     assert "NORMAL" in view["header"]
+    assert isinstance(view["body"], list)
+    assert view["body"]
     assert "Tab" in view["footer"]
+    assert "editor_text" not in view
 
 
-def test_build_screen_view_includes_edit_buffer_in_insert_mode(tmp_path):
+def test_build_screen_view_puts_active_edit_buffer_in_footer_in_insert_mode(tmp_path):
     store = Store(tmp_path / "mplan.db")
     store.initialize()
     store.upsert_planner_item(
@@ -49,7 +52,9 @@ def test_build_screen_view_includes_edit_buffer_in_insert_mode(tmp_path):
     )
 
     assert "INSERT" in view["header"]
-    assert view["editor_text"] == "看论文"
+    assert "看论文" in view["footer"]
+    assert "Esc保存" in view["footer"]
+    assert "editor_text" not in view
 
 
 def test_build_screen_view_marks_compact_mode_when_terminal_is_small(tmp_path):
@@ -66,3 +71,4 @@ def test_build_screen_view_marks_compact_mode_when_terminal_is_small(tmp_path):
     )
 
     assert view["layout"] == "compact"
+    assert isinstance(view["body"], list)
