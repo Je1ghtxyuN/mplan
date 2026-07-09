@@ -111,8 +111,26 @@ def _view_to_lines(view: dict[str, Any]) -> list[str]:
         lines.extend(str(line) for line in body)
     elif isinstance(body, str):
         lines.extend(body.splitlines())
+    elif "grid" in view:
+        lines.extend(_render_grid_lines(view["grid"]))
 
-    if "editor_text" in view:
-        lines.append(str(view["editor_text"]))
     lines.append(str(view.get("footer", "")))
     return lines
+
+
+def _render_grid_lines(grid: Any) -> list[str]:
+    return [_render_grid_week(week) for week in getattr(grid, "weeks", [])]
+
+
+def _render_grid_week(week: list[Any]) -> str:
+    return " ".join(_render_grid_cell(cell) for cell in week)
+
+
+def _render_grid_cell(cell: Any) -> str:
+    day = getattr(getattr(cell, "day"), "day")
+    day_text = f"{day:02d}"
+    if getattr(cell, "selected", False):
+        return f"[{day_text}]"
+    if not getattr(cell, "in_month", True):
+        return f"({day_text})"
+    return f" {day_text} "
