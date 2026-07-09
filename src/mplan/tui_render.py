@@ -59,16 +59,13 @@ def build_screen_view(store, sync_engine, state, width: int, height: int) -> dic
 
 
 def _build_body_lines(grid, layout: str, selected_day: date) -> list[str]:
-    selected_cell = next(
-        cell for week in grid.weeks for cell in week if cell.day == selected_day
-    )
-
-    if layout == "compact":
-        return _build_selected_day_lines(selected_cell)
-
-    lines = [_format_week(week) for week in grid.weeks]
-    lines.append("")
-    lines.extend(_build_selected_day_lines(selected_cell))
+    lines: list[str] = []
+    for week in grid.weeks:
+        if lines:
+            lines.append("")
+        if layout == "full":
+            lines.append(_format_week(week))
+        lines.extend(_build_visible_week_lines(week, selected_day))
     return lines
 
 
@@ -100,20 +97,45 @@ def _section_lines(label: str, items: list[str]) -> list[str]:
     return [f"{label}: {items[0]}", *(f"  {item}" for item in items[1:])]
 
 
+def _build_visible_week_lines(week: list[DayCell], selected_day: date) -> list[str]:
+    lines: list[str] = []
+    for cell in week:
+        if not cell.in_month:
+            continue
+        lines.extend(_build_day_lines(cell, selected_day))
+    return lines
+
+
+def _build_day_lines(cell: DayCell, selected_day: date) -> list[str]:
+    marker = "*" if cell.day == selected_day else " "
+    lines = [f"{marker} {cell.day.day:02d}"]
+    if cell.imported_events:
+        lines.append(f"  正式: {' ; '.join(cell.imported_events)}")
+    if cell.morning:
+        lines.append(f"  早: {' ; '.join(cell.morning)}")
+    if cell.afternoon:
+        lines.append(f"  午: {' ; '.join(cell.afternoon)}")
+    if cell.evening:
+        lines.append(f"  晚: {' ; '.join(cell.evening)}")
+    return lines
+
+
 def _build_footer(store, state) -> str:
+    status_prefix = f"{state.status_message} " if state.status_message else ""
+
     if state.mode == "INSERT":
         return (
-            f"{state.selected_day.isoformat()} {state.selected_bucket} 编辑: "
+            f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} 编辑: "
             f"{state.edit_buffer} Esc保存"
         )
 
     current_text = load_bucket_text(store, state.selected_day, state.selected_bucket)
     if current_text:
         return (
-            f"{state.selected_day.isoformat()} {state.selected_bucket} {current_text} "
+            f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} {current_text} "
             "方向键移动 Tab切换 i编辑 s同步 q退出"
         )
     return (
-        f"{state.selected_day.isoformat()} {state.selected_bucket} "
+        f"{status_prefix}{state.selected_day.isoformat()} {state.selected_bucket} "
         "方向键移动 Tab切换 i编辑 s同步 q退出"
     )

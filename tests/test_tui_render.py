@@ -1,6 +1,8 @@
+from dataclasses import replace
 from datetime import date
+from datetime import datetime
 
-from mplan.models import PlannerItem
+from mplan.models import ImportedCalendarEvent, PlannerItem
 from mplan.storage import Store
 from mplan.sync import SyncEngine
 from mplan.tui_render import build_screen_view
@@ -18,7 +20,10 @@ class DummyBridge:
 def test_build_screen_view_returns_footer_hints_in_normal_mode(tmp_path):
     store = Store(tmp_path / "mplan.db")
     store.initialize()
-    state = TuiState.initial(selected_day=date(2026, 7, 12))
+    state = replace(
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        status_message="已保存",
+    )
 
     view = build_screen_view(
         store,
@@ -32,6 +37,7 @@ def test_build_screen_view_returns_footer_hints_in_normal_mode(tmp_path):
     assert isinstance(view["body"], list)
     assert view["body"]
     assert "Tab" in view["footer"]
+    assert "已保存" in view["footer"]
     assert "editor_text" not in view
 
 
@@ -55,6 +61,42 @@ def test_build_screen_view_puts_active_edit_buffer_in_footer_in_insert_mode(tmp_
     assert "看论文" in view["footer"]
     assert "Esc保存" in view["footer"]
     assert "editor_text" not in view
+
+
+def test_build_screen_view_keeps_visible_day_content_in_month_body(tmp_path):
+    store = Store(tmp_path / "mplan.db")
+    store.initialize()
+    store.upsert_planner_item(
+        PlannerItem.new(day=date(2026, 7, 14), bucket="午", text="改简历")
+    )
+    store.replace_imported_events_in_month(
+        2026,
+        7,
+        [
+            ImportedCalendarEvent(
+                id="evt-1",
+                title="腾讯会议",
+                starts_at=datetime.fromisoformat("2026-07-14T09:00:00"),
+                ends_at=datetime.fromisoformat("2026-07-14T10:00:00"),
+                calendar_name="工作",
+                notes=None,
+            )
+        ],
+    )
+    state = TuiState.initial(selected_day=date(2026, 7, 12))
+
+    view = build_screen_view(
+        store,
+        SyncEngine(store, DummyBridge()),
+        state,
+        width=140,
+        height=40,
+    )
+
+    body = "\n".join(view["body"])
+    assert "14" in body
+    assert "正式: 09:00 腾讯会议" in body
+    assert "午: 改简历" in body
 
 
 def test_build_screen_view_marks_compact_mode_when_terminal_is_small(tmp_path):
