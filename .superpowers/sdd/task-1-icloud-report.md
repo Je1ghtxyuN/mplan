@@ -141,3 +141,30 @@
 ### Self-Review / Concerns
 
 - The ownership heuristic still depends on Calendar.app AppleScript object identity and iCloud container naming, so it should be treated as platform-sensitive.
+
+## Final Fix Pass
+
+### Implemented
+
+- Removed the metadata-based in-place update path from `upsert_owned_event()`.
+- `external_event_id` now updates in place only when the event is already in the actual resolved target calendar (`iCloud > mplan`).
+- If the ID resolves to a different iCloud calendar, the bridge now creates a fresh event in `targetCalendar` instead of mutating the off-target event.
+
+### Additional Coverage Added
+
+- `test_upsert_does_not_rewrite_unrelated_external_event`
+  - Now asserts the generated script contains only the container-based ownership check.
+  - Now fails if any `source: "mplan"` metadata-based in-place update path is present.
+
+### Tested
+
+- Focused verification:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_does_not_rewrite_unrelated_external_event -q`
+  - Result: `1 passed`
+- Regression check:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py -q`
+  - Result: `12 passed`
+
+### Self-Review / Concerns
+
+- This keeps Task 1 safely write-only for the dedicated iCloud target calendar and intentionally leaves all cross-calendar migration behavior for Task 2.

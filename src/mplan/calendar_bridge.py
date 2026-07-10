@@ -90,13 +90,7 @@ tell application "Calendar"
             try
                 set foundEvent to first event of cal whose uid is targetEventId
                 set foundEventContainer to container of cal
-                set foundEventNotes to description of foundEvent
                 if foundEventContainer is container of targetCalendar then
-                    set targetEvent to foundEvent
-                    set targetEventIsOwned to true
-                    exit repeat
-                end if
-                if foundEventNotes is not missing value and foundEventNotes contains "\\"source\\": \\"mplan\\"" and name of foundEventContainer contains "iCloud" then
                     set targetEvent to foundEvent
                     set targetEventIsOwned to true
                     exit repeat
