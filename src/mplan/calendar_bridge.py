@@ -82,35 +82,28 @@ set eventTitle to "{self._escape(title)}"
 set eventNotes to "{self._escape(metadata)}"
 set targetEventId to "{self._escape(external_event_id)}"
 tell application "Calendar"
-    set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
-    set iCloudSource to missing value
-    set targetCalendar to missing value
-    repeat with cal in calendars
-        try
-            set containerName to name of its container
-            if containerName contains "iCloud" then
-                set iCloudSource to its container
-                if name of cal is targetCalendarName and writable of cal then
-                    set targetCalendar to cal
-                    exit repeat
-                end if
-            end if
-        end try
-    end repeat
-    if targetCalendar is missing value then
-        if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
-        set targetCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
-    end if
+{self._icloud_target_calendar_block()}
     set targetEvent to missing value
+    set targetEventIsOwned to false
     if targetEventId is not "" then
         repeat with cal in calendars
             try
-                set targetEvent to first event of cal whose uid is targetEventId
-                exit repeat
+                set foundEvent to first event of cal whose uid is targetEventId
+                set foundEventNotes to description of foundEvent
+                if name of cal is targetCalendarName then
+                    set targetEvent to foundEvent
+                    set targetEventIsOwned to true
+                    exit repeat
+                end if
+                if foundEventNotes is not missing value and foundEventNotes contains "\\"source\\": \\"mplan\\"" then
+                    set targetEvent to foundEvent
+                    set targetEventIsOwned to true
+                    exit repeat
+                end if
             end try
         end repeat
     end if
-    if targetEvent is missing value then
+    if targetEvent is missing value or targetEventIsOwned is false then
         set targetEvent to make new event at end of events of targetCalendar with properties {{summary:eventTitle, start date:eventStart, end date:eventEnd, description:eventNotes}}
     else
         set summary of targetEvent to eventTitle
@@ -121,7 +114,14 @@ tell application "Calendar"
     return uid of targetEvent
 end tell
 """
-        return self._run_script(script)
+        try:
+            return self._run_script(script)
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ) as exc:
+            raise RuntimeError(self._icloud_target_calendar_error()) from exc
 
     def delete_owned_event(self, event_id: str) -> None:
         script = f"""
@@ -152,33 +152,25 @@ return "missing"
 
     def ensure_target_calendar(self) -> str:
         script = f"""
-set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
 tell application "Calendar"
-    set iCloudSource to missing value
-    set matchingCalendar to missing value
-    repeat with cal in calendars
-        try
-            set containerName to name of its container
-            if containerName contains "iCloud" then
-                set iCloudSource to its container
-                if name of cal is targetCalendarName and writable of cal then
-                    set matchingCalendar to cal
-                    exit repeat
-                end if
-            end if
-        end try
-    end repeat
-    if matchingCalendar is not missing value then return "iCloud::" & name of matchingCalendar
-    if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
-    set matchingCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
-    return "iCloud::" & name of matchingCalendar
+{self._icloud_target_calendar_block()}
+    return "iCloud::" & name of targetCalendar
 end tell
 """
-        return self._run_script(script)
+        try:
+            return self._run_script(script)
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ) as exc:
+            raise RuntimeError(self._icloud_target_calendar_error()) from exc
 
     def calendar_status(self) -> tuple[bool, str]:
         try:
             detail = self.ensure_target_calendar()
+        except RuntimeError as exc:
+            return False, str(exc)
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
@@ -186,6 +178,32 @@ end tell
         ) as exc:
             return False, str(exc)
         return True, detail or "Calendar target available"
+
+    def _icloud_target_calendar_block(self) -> str:
+        return f"""
+    set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
+    set iCloudSource to missing value
+    set targetCalendar to missing value
+    repeat with cal in calendars
+        try
+            set containerName to name of its container
+            if containerName contains "iCloud" then
+                set iCloudSource to its container
+                if name of cal is targetCalendarName and writable of cal then
+                    set targetCalendar to cal
+                    exit repeat
+                end if
+            end if
+        end try
+    end repeat
+    if targetCalendar is missing value then
+        if iCloudSource is missing value then error "{self._icloud_target_calendar_error()}"
+        set targetCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
+    end if
+""".strip()
+
+    def _icloud_target_calendar_error(self) -> str:
+        return "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
 
     def _list_script(self, month_start: date, month_end: date) -> str:
         range_start = datetime.combine(month_start, time(0, 0, 0))

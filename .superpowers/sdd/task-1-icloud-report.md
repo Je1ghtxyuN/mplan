@@ -75,3 +75,39 @@
 
 - The iCloud calendar source detection is still AppleScript-driven and depends on Calendar.app container naming, so it should be kept under watch on macOS.
 - I intentionally did not change the owned-event return type or add migration behavior; that remains reserved for Task 2.
+
+## Second Fix Pass
+
+### Implemented
+
+- Added an ownership guard to `upsert_owned_event()` so an `external_event_id` only updates an event when it is already in the dedicated iCloud `mplan` calendar or its stored notes identify it as `source: "mplan"`.
+- Kept unrelated user events safe by falling back to create a new owned event when the resolved event is not clearly ours.
+- Refactored the iCloud target-calendar resolution into a shared AppleScript helper used by both `ensure_target_calendar()` and `upsert_owned_event()`.
+- Normalized the sync-path failure so `upsert_owned_event()` raises a readable iCloud-specific `RuntimeError` instead of exposing a generic `osascript` failure.
+- Tightened `calendar_status()` failure handling so it returns the explicit iCloud message.
+
+### Additional Coverage Added
+
+- `test_upsert_does_not_rewrite_unrelated_external_event`
+  - Proves the upsert script now checks event ownership before reusing an existing external event ID.
+- `test_upsert_owned_event_surfaces_explicit_icloud_failure`
+  - Proves the real upsert path raises the explicit iCloud failure message.
+- `test_calendar_status_reports_explicit_icloud_failure`
+  - Proves the status path returns the same explicit iCloud failure message.
+
+### Tested
+
+- Red phase:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_does_not_rewrite_unrelated_external_event -q`
+  - Result: failed before the ownership guard assertion matched the new behavior.
+- Green phase:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_does_not_rewrite_unrelated_external_event tests/test_calendar_bridge.py::test_upsert_owned_event_surfaces_explicit_icloud_failure tests/test_calendar_bridge.py::test_calendar_status_reports_explicit_icloud_failure -q`
+  - Result: `3 passed`
+- Regression check:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py -q`
+  - Result: `12 passed`
+
+### Self-Review / Concerns
+
+- The iCloud-specific error is now surfaced from the bridge layer, but it still relies on Calendar.app AppleScript behavior on macOS.
+- Task 2 migration semantics are still intentionally untouched.
