@@ -1,3 +1,4 @@
+import subprocess
 from datetime import date
 
 from mplan.calendar_bridge import CalendarBridge
@@ -94,6 +95,61 @@ def test_ensure_target_calendar_uses_existing_icloud_mplan(monkeypatch):
     assert bridge.ensure_target_calendar() == "iCloud::mplan"
     assert 'set targetCalendarName to "mplan"' in captured["script"]
     assert "iCloud" in captured["script"]
+
+
+def test_ensure_target_calendar_creates_icloud_mplan_when_missing(monkeypatch):
+    bridge = CalendarBridge()
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: (captured.setdefault("script", script), "iCloud::mplan")[1],
+    )
+
+    assert bridge.ensure_target_calendar() == "iCloud::mplan"
+    assert (
+        'set matchingCalendar to make new calendar at end of calendars with properties {name:targetCalendarName, container:iCloudSource}'
+        in captured["script"]
+    )
+    assert 'if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"' in captured["script"]
+
+
+def test_upsert_owned_event_targets_icloud_mplan_calendar(monkeypatch):
+    bridge = CalendarBridge()
+    item = PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="看论文")
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: (captured.setdefault("script", script), "evt-1")[1],
+    )
+
+    assert bridge.upsert_owned_event(item, order_index=0) == "evt-1"
+    assert 'set targetCalendarName to "mplan"' in captured["script"]
+    assert "item 1 of writableCalendars" not in captured["script"]
+    assert (
+        'make new calendar at end of calendars with properties {name:targetCalendarName, container:iCloudSource}'
+        in captured["script"]
+    )
+
+
+def test_calendar_status_reports_no_writable_icloud_failure(monkeypatch):
+    bridge = CalendarBridge()
+
+    def raise_called_process_error(script):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["osascript"],
+            output="",
+            stderr="No writable iCloud calendars",
+        )
+
+    monkeypatch.setattr(bridge, "_run_script", raise_called_process_error)
+
+    ok, detail = bridge.calendar_status()
+
+    assert ok is False
+    assert "osascript" in detail
 
 
 def test_calendar_status_reports_icloud_target(monkeypatch):

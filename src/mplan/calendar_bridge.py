@@ -82,9 +82,25 @@ set eventTitle to "{self._escape(title)}"
 set eventNotes to "{self._escape(metadata)}"
 set targetEventId to "{self._escape(external_event_id)}"
 tell application "Calendar"
-    set writableCalendars to every calendar whose writable is true
-    if (count of writableCalendars) is 0 then error "No writable Calendar calendars available"
-    set targetCalendar to item 1 of writableCalendars
+    set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
+    set iCloudSource to missing value
+    set targetCalendar to missing value
+    repeat with cal in calendars
+        try
+            set containerName to name of its container
+            if containerName contains "iCloud" then
+                set iCloudSource to its container
+                if name of cal is targetCalendarName and writable of cal then
+                    set targetCalendar to cal
+                    exit repeat
+                end if
+            end if
+        end try
+    end repeat
+    if targetCalendar is missing value then
+        if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
+        set targetCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
+    end if
     set targetEvent to missing value
     if targetEventId is not "" then
         repeat with cal in calendars
