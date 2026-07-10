@@ -111,3 +111,33 @@
 
 - The iCloud-specific error is now surfaced from the bridge layer, but it still relies on Calendar.app AppleScript behavior on macOS.
 - Task 2 migration semantics are still intentionally untouched.
+
+## Third Fix Pass
+
+### Implemented
+
+- Replaced the name-only ownership check in `upsert_owned_event()` with a container-based comparison against the resolved iCloud target calendar.
+- Kept the metadata fallback for owned events in iCloud containers, but only after confirming the event is still in an iCloud context.
+- Left Task 2 migration semantics untouched.
+
+### Additional Coverage Added
+
+- `test_upsert_does_not_rewrite_unrelated_external_event`
+  - Now asserts the generated script contains the container-based ownership predicate.
+  - This would fail if the code regressed to a name-only `mplan` match.
+
+### Tested
+
+- Red phase:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_does_not_rewrite_unrelated_external_event -q`
+  - Result: failed because the generated script did not yet compare `container of cal` to `container of targetCalendar`.
+- Green phase:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_does_not_rewrite_unrelated_external_event -q`
+  - Result: `1 passed`
+- Regression check:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py -q`
+  - Result: `12 passed`
+
+### Self-Review / Concerns
+
+- The ownership heuristic still depends on Calendar.app AppleScript object identity and iCloud container naming, so it should be treated as platform-sensitive.

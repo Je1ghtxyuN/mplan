@@ -95,7 +95,8 @@ def test_upsert_does_not_rewrite_unrelated_external_event(monkeypatch):
     assert "targetEventIsOwned" in captured["script"]
     assert "set foundEventNotes to description of foundEvent" in captured["script"]
     assert "if foundEventNotes is not missing value" in captured["script"]
-    assert "item 1 of writableCalendars" not in captured["script"]
+    assert "set foundEventContainer to container of cal" in captured["script"]
+    assert "if foundEventContainer is container of targetCalendar" in captured["script"]
 
 
 def test_delete_targets_calendar_event(monkeypatch):
