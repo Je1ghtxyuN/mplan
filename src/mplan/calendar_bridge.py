@@ -62,7 +62,9 @@ class CalendarBridge:
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return []
 
-    def upsert_owned_event(self, item: PlannerItem, order_index: int) -> str:
+    def upsert_owned_event(
+        self, item: PlannerItem, order_index: int
+    ) -> tuple[str, str | None]:
         title = self.owned_title_for(item)
         starts_at, ends_at = self.event_window_for(item, order_index)
         metadata = json.dumps(
@@ -84,32 +86,53 @@ set targetEventId to "{self._escape(external_event_id)}"
 tell application "Calendar"
 {self._icloud_target_calendar_block()}
     set targetEvent to missing value
-    set targetEventIsOwned to false
+    set sourceEventToDelete to missing value
+    set deletedEventId to missing value
     if targetEventId is not "" then
         repeat with cal in calendars
             try
                 set foundEvent to first event of cal whose uid is targetEventId
                 if cal is targetCalendar then
                     set targetEvent to foundEvent
-                    set targetEventIsOwned to true
+                    exit repeat
+                end if
+                if my notes_identify_mplan(description of foundEvent) then
+                    set sourceEventToDelete to foundEvent
+                    set deletedEventId to uid of foundEvent
                     exit repeat
                 end if
             end try
         end repeat
     end if
-    if targetEvent is missing value or targetEventIsOwned is false then
+    if targetEvent is missing value then
         set targetEvent to make new event at end of events of targetCalendar with properties {{summary:eventTitle, start date:eventStart, end date:eventEnd, description:eventNotes}}
+        if sourceEventToDelete is not missing value then delete sourceEventToDelete
     else
         set summary of targetEvent to eventTitle
         set start date of targetEvent to eventStart
         set end date of targetEvent to eventEnd
         set description of targetEvent to eventNotes
     end if
-    return uid of targetEvent
+    return "{{\\"event_id\\":\\"" & my escape_json(uid of targetEvent) & "\\",\\"deleted_event_id\\":" & my nullable_event_id(deletedEventId) & "}}"
 end tell
+
+on notes_identify_mplan(notesValue)
+    if notesValue is missing value then return false
+    if notesValue is "" then return false
+    if notesValue contains "\\"source\\": \\"mplan\\"" then return true
+    if notesValue contains "\\"source\\":\\"mplan\\"" then return true
+    return false
+end notes_identify_mplan
+
+on nullable_event_id(eventIdValue)
+    if eventIdValue is missing value then return "null"
+    if eventIdValue is "" then return "null"
+    return "\\"" & my escape_json(eventIdValue) & "\\""
+end nullable_event_id
 """
         try:
-            return self._run_script(script)
+            payload = json.loads(self._run_script(script))
+            return payload["event_id"], payload.get("deleted_event_id")
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,

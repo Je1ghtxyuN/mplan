@@ -1,4 +1,5 @@
 import subprocess
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -28,7 +29,10 @@ def test_owned_event_title_includes_completion_prefix(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: captured.setdefault("script", script) or "event-1",
+        lambda script: (
+            captured.setdefault("script", script),
+            '{"event_id":"event-1","deleted_event_id":null}',
+        )[1],
     )
 
     bridge.upsert_owned_event(item, order_index=0)
@@ -64,7 +68,10 @@ def test_upsert_uses_existing_event_id_when_present(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: captured.setdefault("script", script) or "evt-123",
+        lambda script: (
+            captured.setdefault("script", script),
+            '{"event_id":"evt-123","deleted_event_id":null}',
+        )[1],
     )
 
     bridge.upsert_owned_event(item, order_index=1)
@@ -88,13 +95,16 @@ def test_upsert_does_not_rewrite_unrelated_external_event(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: (captured.setdefault("script", script), "evt-123")[1],
+        lambda script: (
+            captured.setdefault("script", script),
+            '{"event_id":"evt-123","deleted_event_id":null}',
+        )[1],
     )
 
     bridge.upsert_owned_event(item, order_index=1)
-    assert "targetEventIsOwned" in captured["script"]
+    assert "set sourceEventToDelete to missing value" in captured["script"]
     assert "if cal is targetCalendar" in captured["script"]
-    assert "container of cal is container of targetCalendar" not in captured["script"]
+    assert "notes_identify_mplan" in captured["script"]
 
 
 def test_delete_targets_calendar_event(monkeypatch):
@@ -185,16 +195,34 @@ def test_upsert_owned_event_targets_icloud_mplan_calendar(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: (captured.setdefault("script", script), "evt-1")[1],
+        lambda script: (captured.setdefault("script", script), '{"event_id":"evt-1","deleted_event_id":null}')[1],
     )
 
-    assert bridge.upsert_owned_event(item, order_index=0) == "evt-1"
+    assert bridge.upsert_owned_event(item, order_index=0) == ("evt-1", None)
     assert 'set targetCalendarName to "mplan"' in captured["script"]
     assert "item 1 of writableCalendars" not in captured["script"]
     assert (
         'make new calendar at end of calendars with properties {name:targetCalendarName, container:iCloudSource}'
         in captured["script"]
     )
+
+
+def test_upsert_owned_event_returns_new_uid_and_old_uid_for_local_migration(
+    monkeypatch,
+):
+    bridge = CalendarBridge()
+    item = PlannerItem.new(day=date(2026, 7, 12), bucket="午", text="改简历")
+    item = replace(item, external_event_id="local-evt-1")
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: '{"event_id":"icloud-evt-1","deleted_event_id":"local-evt-1"}',
+    )
+
+    event_id, deleted_event_id = bridge.upsert_owned_event(item, order_index=0)
+
+    assert event_id == "icloud-evt-1"
+    assert deleted_event_id == "local-evt-1"
 
 
 def test_upsert_owned_event_surfaces_explicit_icloud_failure(monkeypatch):
