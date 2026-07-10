@@ -1,25 +1,15 @@
 import json
 import subprocess
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
-from mplan.models import PlannerItem
-
-
-@dataclass(frozen=True)
-class ImportedEvent:
-    id: str
-    title: str
-    starts_at: datetime
-    ends_at: datetime
-    calendar_name: str
-    notes: str | None
+from mplan.models import ImportedCalendarEvent, PlannerItem
 
 
 class CalendarBridge:
     BUCKET_STARTS = {"早": time(8, 0), "午": time(13, 0), "晚": time(19, 0)}
     EVENT_DURATION_MINUTES = 30
-    SCRIPT_TIMEOUT_SECONDS = 10
+    SCRIPT_TIMEOUT_SECONDS = 30
+    TARGET_CALENDAR_NAME = "mplan"
 
     def _run_script(self, script: str) -> str:
         result = subprocess.run(
@@ -45,17 +35,14 @@ class CalendarBridge:
         start += timedelta(minutes=self.EVENT_DURATION_MINUTES * order_index)
         return start, start + timedelta(minutes=self.EVENT_DURATION_MINUTES)
 
-    def list_timed_events(
+    def fetch_timed_events(
         self, month_start: date, month_end: date
-    ) -> list[ImportedEvent]:
+    ) -> list[ImportedCalendarEvent]:
         script = self._list_script(month_start, month_end)
-        try:
-            payload = self._run_script(script)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return []
+        payload = self._run_script(script)
         records = json.loads(payload) if payload else []
         return [
-            ImportedEvent(
+            ImportedCalendarEvent(
                 id=record["id"],
                 title=record["title"],
                 starts_at=datetime.fromisoformat(record["starts_at"]),
@@ -66,6 +53,14 @@ class CalendarBridge:
             for record in records
             if not record.get("all_day", False)
         ]
+
+    def list_timed_events(
+        self, month_start: date, month_end: date
+    ) -> list[ImportedCalendarEvent]:
+        try:
+            return self.fetch_timed_events(month_start, month_end)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return []
 
     def upsert_owned_event(self, item: PlannerItem, order_index: int) -> str:
         title = self.owned_title_for(item)
@@ -138,6 +133,43 @@ return "missing"
         ) as exc:
             return False, str(exc)
         return True, result or "Calendar automation available"
+
+    def ensure_target_calendar(self) -> str:
+        script = f"""
+set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
+tell application "Calendar"
+    set iCloudSource to missing value
+    set matchingCalendar to missing value
+    repeat with cal in calendars
+        try
+            set containerName to name of its container
+            if containerName contains "iCloud" then
+                set iCloudSource to its container
+                if name of cal is targetCalendarName and writable of cal then
+                    set matchingCalendar to cal
+                    exit repeat
+                end if
+            end if
+        end try
+    end repeat
+    if matchingCalendar is not missing value then return "iCloud::" & name of matchingCalendar
+    if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
+    set matchingCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
+    return "iCloud::" & name of matchingCalendar
+end tell
+"""
+        return self._run_script(script)
+
+    def calendar_status(self) -> tuple[bool, str]:
+        try:
+            detail = self.ensure_target_calendar()
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ) as exc:
+            return False, str(exc)
+        return True, detail or "Calendar target available"
 
     def _list_script(self, month_start: date, month_end: date) -> str:
         range_start = datetime.combine(month_start, time(0, 0, 0))

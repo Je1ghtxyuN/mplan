@@ -80,3 +80,27 @@ def test_delete_targets_calendar_event(monkeypatch):
     bridge.delete_owned_event("evt-456")
     assert 'tell application "Calendar"' in captured["script"]
     assert "evt-456" in captured["script"]
+
+
+def test_ensure_target_calendar_uses_existing_icloud_mplan(monkeypatch):
+    bridge = CalendarBridge()
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: (captured.setdefault("script", script), "iCloud::mplan")[1],
+    )
+
+    assert bridge.ensure_target_calendar() == "iCloud::mplan"
+    assert 'set targetCalendarName to "mplan"' in captured["script"]
+    assert "iCloud" in captured["script"]
+
+
+def test_calendar_status_reports_icloud_target(monkeypatch):
+    bridge = CalendarBridge()
+    monkeypatch.setattr(bridge, "_run_script", lambda script: "iCloud::mplan")
+
+    ok, detail = bridge.calendar_status()
+
+    assert ok is True
+    assert detail == "iCloud::mplan"
