@@ -19,7 +19,9 @@ class SyncEngine:
         self.bridge = bridge
 
     def pull_month(self, year: int, month: int) -> list:
-        return self.store.list_imported_events_in_month(year, month)
+        month_start, month_end = self._month_bounds(year, month)
+        events = self.bridge.list_timed_events(month_start, month_end)
+        return [event for event in events if not self._is_owned_event(event)]
 
     def refresh_month_imports(self, year: int, month: int) -> tuple[list, str | None]:
         month_start, month_end = self._month_bounds(year, month)
@@ -31,7 +33,9 @@ class SyncEngine:
             FileNotFoundError,
             json.JSONDecodeError,
         ) as exc:
-            return self.pull_month(year, month), f"日历导入刷新失败，已显示上次同步结果: {exc}"
+            return self.store.list_imported_events_in_month(
+                year, month
+            ), f"日历导入刷新失败，已显示上次同步结果: {exc}"
 
         visible_events = [event for event in events if not self._is_owned_event(event)]
         self.store.replace_imported_events_in_month(year, month, visible_events)

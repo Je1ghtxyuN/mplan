@@ -107,6 +107,35 @@ def test_upsert_does_not_rewrite_unrelated_external_event(monkeypatch):
     assert "notes_identify_mplan" in captured["script"]
 
 
+def test_upsert_only_migrates_owned_events_from_writable_source_calendars(monkeypatch):
+    bridge = CalendarBridge()
+    item = PlannerItem.new(day=date(2026, 7, 12), bucket="晚", text="整理材料")
+    item = PlannerItem(
+        id=item.id,
+        day=item.day,
+        bucket=item.bucket,
+        text=item.text,
+        completed=item.completed,
+        created_at=item.created_at,
+        updated_at=item.updated_at,
+        external_event_id="read-only-evt-123",
+    )
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: (
+            captured.setdefault("script", script),
+            '{"event_id":"icloud-evt-123","deleted_event_id":null}',
+        )[1],
+    )
+
+    bridge.upsert_owned_event(item, order_index=1)
+
+    assert "if writable of cal and my notes_identify_mplan(description of foundEvent) then" in captured["script"]
+    assert "delete sourceEventToDelete" in captured["script"]
+
+
 def test_delete_targets_calendar_event(monkeypatch):
     bridge = CalendarBridge()
     captured = {}

@@ -96,7 +96,7 @@ tell application "Calendar"
                     set targetEvent to foundEvent
                     exit repeat
                 end if
-                if my notes_identify_mplan(description of foundEvent) then
+                if writable of cal and my notes_identify_mplan(description of foundEvent) then
                     set sourceEventToDelete to foundEvent
                     set deletedEventId to uid of foundEvent
                     exit repeat

@@ -95,3 +95,63 @@ feat: migrate owned calendar events to icloud
 No blocking issues found.
 
 One conservative behavior is worth noting: the AppleScript ownership check looks for the `source: "mplan"` marker in the event notes string rather than attempting broader JSON parsing in AppleScript. That keeps the migration path biased toward false negatives instead of false positives, which is safer for the brief’s “never migrate or delete unrelated user events” constraint.
+
+## Fix Pass
+
+Addressed the follow-up findings inside the same owned file set.
+
+### Finding 1: Off-target migration safety
+
+Root cause:
+
+- `CalendarBridge.upsert_owned_event()` treated any off-target event with `source: "mplan"` metadata as migratable.
+- That allowed read-only/subscribed/imported matches to fall into the delete-after-copy path.
+
+Fix:
+
+- tightened the AppleScript migration branch so an off-target event is only eligible for migration when both conditions are true:
+  - its notes identify `source: "mplan"`
+  - its source calendar is writable
+- read-only/subscribed/imported matches now fall through to “create fresh event in `iCloud > mplan`” without deleting the original event
+
+Added focused regression coverage:
+
+- `tests/test_calendar_bridge.py::test_upsert_only_migrates_owned_events_from_writable_source_calendars`
+
+### Finding 2: `pull_month()` contract regression
+
+Root cause:
+
+- `SyncEngine.pull_month()` had been changed to return only cached imported events from the store.
+- existing render callers still depend on `pull_month()` doing a live bridge fetch and filtering owned events
+
+Fix:
+
+- restored `pull_month()` to its original live-fetch contract using `bridge.list_timed_events(...)`
+- kept `refresh_month_imports()` cache fallback behavior by reading cached store imports directly on fetch failure, instead of routing through `pull_month()`
+
+Added focused regression coverage:
+
+- `tests/test_sync.py::test_pull_month_uses_live_bridge_fetch_and_filters_owned_imports`
+
+### Fix Verification
+
+Targeted fix-pass regression command:
+
+```bash
+PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_only_migrates_owned_events_from_writable_source_calendars tests/test_sync.py::test_pull_month_uses_live_bridge_fetch_and_filters_owned_imports -q
+```
+
+Result:
+
+- `2 passed`
+
+Full owned-suite verification:
+
+```bash
+PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py tests/test_sync.py -q
+```
+
+Result:
+
+- `25 passed`

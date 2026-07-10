@@ -52,6 +52,7 @@ class FakeBridge:
         self.imports: list[object] = []
         self.raise_on_fetch: Exception | None = None
         self.migrated_event_ids: dict[str, tuple[str, str | None]] = {}
+        self.list_calls: list[tuple[date, date]] = []
 
     def upsert_owned_event(
         self, item: PlannerItem, order_index: int
@@ -72,6 +73,7 @@ class FakeBridge:
         return event_id, deleted_event_id
 
     def list_timed_events(self, month_start: date, month_end: date) -> list[object]:
+        self.list_calls.append((month_start, month_end))
         return list(self.imports)
 
     def fetch_timed_events(self, month_start: date, month_end: date) -> list[object]:
@@ -159,6 +161,38 @@ def test_refresh_month_imports_excludes_mplan_owned_imports():
 
     assert [event.title for event in events] == ["腾讯会议"]
     assert warning is None
+
+
+def test_pull_month_uses_live_bridge_fetch_and_filters_owned_imports():
+    fake_store = FakeStore()
+    fake_store.replace_imported_events_in_month(
+        2026,
+        7,
+        [
+            ImportedCalendarEvent(
+                id="cached-evt",
+                title="缓存会议",
+                starts_at=datetime.fromisoformat("2026-07-12T09:00:00"),
+                ends_at=datetime.fromisoformat("2026-07-12T10:00:00"),
+                calendar_name="工作",
+                notes=None,
+            )
+        ],
+    )
+    fake_bridge = FakeBridge()
+    fake_bridge.imports = [
+        FakeImportedEvent(title="直播会议"),
+        FakeImportedEvent(
+            title="午｜改简历",
+            notes=json.dumps({"source": "mplan", "item_id": "planner-1"}, ensure_ascii=False),
+        ),
+    ]
+
+    engine = SyncEngine(fake_store, fake_bridge)
+    events = engine.pull_month(2026, 7)
+
+    assert [event.title for event in events] == ["直播会议"]
+    assert fake_bridge.list_calls == [(date(2026, 7, 1), date(2026, 7, 31))]
 
 
 def test_push_day_uses_completion_prefix_for_completed_item():
