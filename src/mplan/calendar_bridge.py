@@ -121,13 +121,15 @@ end tell
         script = f"""
 set targetEventId to "{self._escape(event_id)}"
 tell application "Calendar"
-    repeat with cal in calendars
-        try
-            set targetEvent to first event of cal whose uid is targetEventId
-            delete targetEvent
-            return "ok"
-        end try
-    end repeat
+{self._icloud_target_calendar_block(create_if_missing=False)}
+    if targetCalendar is missing value then return "missing"
+    set targetEvent to missing value
+    try
+        set targetEvent to first event of events of targetCalendar whose uid is targetEventId
+    end try
+    if targetEvent is missing value then return "missing"
+    delete targetEvent
+    return "ok"
 end tell
 return "missing"
 """
@@ -147,7 +149,7 @@ return "missing"
     def ensure_target_calendar(self) -> str:
         script = f"""
 tell application "Calendar"
-{self._icloud_target_calendar_block()}
+{self._icloud_target_calendar_block(create_if_missing=True)}
     return "iCloud::" & name of targetCalendar
 end tell
 """
@@ -173,11 +175,23 @@ end tell
             return False, str(exc)
         return True, detail or "Calendar target available"
 
-    def _icloud_target_calendar_block(self) -> str:
+    def _icloud_target_calendar_block(self, create_if_missing: bool = True) -> str:
+        creation_block = (
+            """
+    if targetCalendar is missing value then
+        if nonWritableTargetCalendar is not missing value then error "{error_message}"
+        if iCloudSource is missing value then error "{error_message}"
+        set targetCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
+    end if
+""".strip()
+            if create_if_missing
+            else ""
+        )
         return f"""
     set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
     set iCloudSource to missing value
     set targetCalendar to missing value
+    set nonWritableTargetCalendar to missing value
     repeat with cal in calendars
         try
             set containerName to name of its container
@@ -186,14 +200,14 @@ end tell
                 if name of cal is targetCalendarName and writable of cal then
                     set targetCalendar to cal
                     exit repeat
+                else if name of cal is targetCalendarName then
+                    set nonWritableTargetCalendar to cal
+                    exit repeat
                 end if
             end if
         end try
     end repeat
-    if targetCalendar is missing value then
-        if iCloudSource is missing value then error "{self._icloud_target_calendar_error()}"
-        set targetCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
-    end if
+{creation_block.format(error_message=self._icloud_target_calendar_error()) if create_if_missing else ""}
 """.strip()
 
     def _icloud_target_calendar_error(self) -> str:

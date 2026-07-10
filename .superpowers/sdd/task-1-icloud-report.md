@@ -195,3 +195,33 @@
 ### Self-Review / Concerns
 
 - Exact object identity is the safest Task 1 rule, but it still relies on Calendar.app AppleScript object semantics on macOS.
+
+## Resolution and Delete Hardening
+
+### Implemented
+
+- Distinguished the two target-calendar resolution cases:
+  - missing `iCloud > mplan` now creates a new calendar,
+  - existing but non-writable `iCloud > mplan` now fails clearly without creating a duplicate.
+- Hardened `delete_owned_event()` so it resolves the dedicated target calendar first and only deletes a UID found in that exact calendar.
+- If a UID only exists outside the target calendar, delete now behaves as missing instead of deleting the first match anywhere.
+
+### Additional Coverage Added
+
+- `test_ensure_target_calendar_errors_when_existing_icloud_mplan_is_not_writable`
+  - Proves the generated AppleScript has an explicit non-writable branch and still contains the creation branch for the missing-calendar case.
+- `test_delete_only_targets_event_in_resolved_calendar`
+  - Proves delete searches only within `events of targetCalendar`.
+
+### Tested
+
+- Focused verification:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_ensure_target_calendar_errors_when_existing_icloud_mplan_is_not_writable tests/test_calendar_bridge.py::test_delete_only_targets_event_in_resolved_calendar -q`
+  - Result: `2 passed`
+- Regression check:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py -q`
+  - Result: `14 passed`
+
+### Self-Review / Concerns
+
+- Delete now intentionally prefers safety over convenience: if the event is not already in the exact target calendar, it is treated as missing.

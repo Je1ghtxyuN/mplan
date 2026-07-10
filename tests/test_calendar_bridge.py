@@ -111,6 +111,23 @@ def test_delete_targets_calendar_event(monkeypatch):
     assert "evt-456" in captured["script"]
 
 
+def test_delete_only_targets_event_in_resolved_calendar(monkeypatch):
+    bridge = CalendarBridge()
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: (captured.setdefault("script", script), "missing")[1],
+    )
+
+    bridge.delete_owned_event("evt-456")
+    assert 'set targetCalendarName to "mplan"' in captured["script"]
+    assert "first event of events of targetCalendar whose uid is targetEventId" in captured[
+        "script"
+    ]
+    assert "delete targetEvent" in captured["script"]
+
+
 def test_ensure_target_calendar_uses_existing_icloud_mplan(monkeypatch):
     bridge = CalendarBridge()
     captured = {}
@@ -140,6 +157,25 @@ def test_ensure_target_calendar_creates_icloud_mplan_when_missing(monkeypatch):
         in captured["script"]
     )
     assert 'if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"' in captured["script"]
+
+
+def test_ensure_target_calendar_errors_when_existing_icloud_mplan_is_not_writable(
+    monkeypatch,
+):
+    bridge = CalendarBridge()
+    captured = {}
+    monkeypatch.setattr(
+        bridge,
+        "_run_script",
+        lambda script: (captured.setdefault("script", script), "iCloud::mplan")[1],
+    )
+
+    assert bridge.ensure_target_calendar() == "iCloud::mplan"
+    assert "set nonWritableTargetCalendar to cal" in captured["script"]
+    assert "if nonWritableTargetCalendar is not missing value then error" in captured[
+        "script"
+    ]
+    assert "set targetCalendar to make new calendar" in captured["script"]
 
 
 def test_upsert_owned_event_targets_icloud_mplan_calendar(monkeypatch):
