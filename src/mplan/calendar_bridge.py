@@ -89,8 +89,7 @@ tell application "Calendar"
         repeat with cal in calendars
             try
                 set foundEvent to first event of cal whose uid is targetEventId
-                set foundEventContainer to container of cal
-                if foundEventContainer is container of targetCalendar then
+                if cal is targetCalendar then
                     set targetEvent to foundEvent
                     set targetEventIsOwned to true
                     exit repeat

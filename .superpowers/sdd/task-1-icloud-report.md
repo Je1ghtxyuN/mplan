@@ -168,3 +168,30 @@
 ### Self-Review / Concerns
 
 - This keeps Task 1 safely write-only for the dedicated iCloud target calendar and intentionally leaves all cross-calendar migration behavior for Task 2.
+
+## Exact Calendar Identity Fix
+
+### Implemented
+
+- Switched the `upsert_owned_event()` ownership predicate from container-based matching to exact calendar object identity.
+- The bridge now updates in place only when `cal is targetCalendar`.
+- This prevents off-target iCloud calendars from being treated as editable just because they share a container/account.
+
+### Additional Coverage Added
+
+- `test_upsert_does_not_rewrite_unrelated_external_event`
+  - Now asserts the script contains `if cal is targetCalendar`.
+  - Now fails if the predicate regresses to container-based matching.
+
+### Tested
+
+- Focused verification:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py::test_upsert_does_not_rewrite_unrelated_external_event -q`
+  - Result: `1 passed`
+- Regression check:
+  - `PYTHONPATH=src ./.venv/bin/pytest tests/test_calendar_bridge.py -q`
+  - Result: `12 passed`
+
+### Self-Review / Concerns
+
+- Exact object identity is the safest Task 1 rule, but it still relies on Calendar.app AppleScript object semantics on macOS.

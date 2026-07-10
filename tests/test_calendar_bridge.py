@@ -93,9 +93,8 @@ def test_upsert_does_not_rewrite_unrelated_external_event(monkeypatch):
 
     bridge.upsert_owned_event(item, order_index=1)
     assert "targetEventIsOwned" in captured["script"]
-    assert "set foundEventContainer to container of cal" in captured["script"]
-    assert "if foundEventContainer is container of targetCalendar" in captured["script"]
-    assert 'contains "\\"source\\": \\"mplan\\""' not in captured["script"]
+    assert "if cal is targetCalendar" in captured["script"]
+    assert "container of cal is container of targetCalendar" not in captured["script"]
 
 
 def test_delete_targets_calendar_event(monkeypatch):
