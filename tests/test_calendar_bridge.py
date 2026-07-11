@@ -161,9 +161,8 @@ def test_delete_only_targets_event_in_resolved_calendar(monkeypatch):
 
     bridge.delete_owned_event("evt-456")
     assert 'set targetCalendarName to "mplan"' in captured["script"]
-    assert "first event of events of targetCalendar whose uid is targetEventId" in captured[
-        "script"
-    ]
+    assert "first event of targetCalendar whose uid is targetEventId" in captured["script"]
+    assert "first event of events of targetCalendar" not in captured["script"]
     assert "delete targetEvent" in captured["script"]
 
 

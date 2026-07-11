@@ -150,7 +150,7 @@ tell application "Calendar"
     if targetCalendar is missing value then return "missing"
     set targetEvent to missing value
     try
-        set targetEvent to first event of events of targetCalendar whose uid is targetEventId
+        set targetEvent to first event of targetCalendar whose uid is targetEventId
     end try
     if targetEvent is missing value then return "missing"
     delete targetEvent
