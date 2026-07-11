@@ -1,6 +1,7 @@
 import argparse
 from datetime import date
 
+from mplan.app import run_app
 from mplan.calendar_bridge import CalendarBridge
 from mplan.config import default_db_path, ensure_data_dir
 from mplan.day_editor import mark_item_done
@@ -8,13 +9,12 @@ from mplan.doctor import run_doctor
 from mplan.models import PlannerItem
 from mplan.storage import Store
 from mplan.sync import SyncEngine
-from mplan.tui import run_tui
 
 
 def launch_app() -> int:
     store = build_store()
     sync_engine = build_sync_engine(store)
-    return run_tui(store, sync_engine)
+    return run_app(store, sync_engine)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -89,5 +89,14 @@ def handle_sync(args) -> int:
     store = build_store()
     sync_engine = build_sync_engine(store)
     today = local_today()
-    sync_engine.sync_month(today.year, today.month)
+    try:
+        report = sync_engine.sync_month(today.year, today.month)
+    except Exception as exc:
+        print(f"同步失败: {exc}")
+        return 1
+    print(
+        f"已同步: 导入 {report.imported_count}，导出 {report.exported_count}，更新 {report.updated_count}"
+    )
+    if getattr(report, "warning", None):
+        print(report.warning)
     return 0

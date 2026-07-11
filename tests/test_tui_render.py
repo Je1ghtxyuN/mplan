@@ -10,10 +10,15 @@ from mplan.tui_state import TuiState, enter_insert_mode
 
 
 class DummyBridge:
-    def list_events(self, year: int, month: int):
-        return []
+    def __init__(self, imports=None):
+        self.imports = list(imports or [])
+        self.list_calls = []
 
-    def upsert_event(self, *args, **kwargs):
+    def list_timed_events(self, month_start: date, month_end: date):
+        self.list_calls.append((month_start, month_end))
+        return list(self.imports)
+
+    def upsert_owned_event(self, *args, **kwargs):
         raise AssertionError("not used")
 
 
@@ -148,6 +153,46 @@ def test_build_screen_view_keeps_visible_day_content_in_month_body(tmp_path):
     assert "14" in body
     assert "正式: 09:00 腾讯会议" in body
     assert "午: 改简历" in body
+
+
+def test_build_screen_view_uses_cached_imports_without_live_calendar_fetch(tmp_path):
+    store = Store(tmp_path / "mplan.db")
+    store.initialize()
+    store.replace_imported_events_in_month(
+        2026,
+        7,
+        [
+            ImportedCalendarEvent(
+                id="evt-1",
+                title="缓存会议",
+                starts_at=datetime.fromisoformat("2026-07-14T09:00:00"),
+                ends_at=datetime.fromisoformat("2026-07-14T10:00:00"),
+                calendar_name="工作",
+                notes=None,
+            )
+        ],
+    )
+    bridge = DummyBridge([ImportedCalendarEvent(
+        id="live-evt",
+        title="直播会议",
+        starts_at=datetime.fromisoformat("2026-07-14T09:00:00"),
+        ends_at=datetime.fromisoformat("2026-07-14T10:00:00"),
+        calendar_name="工作",
+        notes=None,
+    )])
+
+    view = build_screen_view(
+        store,
+        SyncEngine(store, bridge),
+        TuiState.initial(selected_day=date(2026, 7, 12)),
+        width=140,
+        height=40,
+    )
+
+    body = "\n".join(view["body"])
+    assert "正式: 09:00 缓存会议" in body
+    assert "直播会议" not in body
+    assert bridge.list_calls == []
 
 
 def test_build_screen_view_marks_compact_mode_when_terminal_is_small(tmp_path):

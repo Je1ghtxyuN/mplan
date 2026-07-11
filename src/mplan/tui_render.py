@@ -9,7 +9,7 @@ from mplan.tui_store import load_bucket_text
 
 def build_screen_view(store, sync_engine, state, width: int, height: int) -> dict[str, object]:
     imported_by_day: dict[date, list[str]] = defaultdict(list)
-    for event in sync_engine.pull_month(state.visible_year, state.visible_month):
+    for event in sync_engine.cached_month(state.visible_year, state.visible_month):
         imported_by_day[event.starts_at.date()].append(
             f"{event.starts_at.strftime('%H:%M')} {event.title}"
         )

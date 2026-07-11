@@ -195,6 +195,27 @@ def test_pull_month_uses_live_bridge_fetch_and_filters_owned_imports():
     assert fake_bridge.list_calls == [(date(2026, 7, 1), date(2026, 7, 31))]
 
 
+def test_cached_month_uses_store_cache_without_live_bridge_fetch():
+    fake_store = FakeStore()
+    cached = ImportedCalendarEvent(
+        id="cached-evt",
+        title="缓存会议",
+        starts_at=datetime.fromisoformat("2026-07-12T09:00:00"),
+        ends_at=datetime.fromisoformat("2026-07-12T10:00:00"),
+        calendar_name="工作",
+        notes=None,
+    )
+    fake_store.replace_imported_events_in_month(2026, 7, [cached])
+    fake_bridge = FakeBridge()
+    fake_bridge.imports = [FakeImportedEvent(title="直播会议")]
+
+    engine = SyncEngine(fake_store, fake_bridge)
+    events = engine.cached_month(2026, 7)
+
+    assert [event.title for event in events] == ["缓存会议"]
+    assert fake_bridge.list_calls == []
+
+
 def test_push_day_uses_completion_prefix_for_completed_item():
     completed_item = PlannerItem.new(
         day=date(2026, 7, 12), bucket="晚", text="整理材料"

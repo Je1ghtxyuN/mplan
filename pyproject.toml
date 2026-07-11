@@ -9,6 +9,15 @@ description = "Month-grid terminal planner with Apple Calendar sync"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+]
 
 [project.scripts]
 mplan = "mplan.cli:main"

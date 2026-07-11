@@ -1,6 +1,12 @@
 from datetime import date
 
-from mplan.month_grid import DayCell, DayViewModel, build_month_grid, render_day_cell
+from mplan.month_grid import (
+    DayCell,
+    DayViewModel,
+    _display_width,
+    build_month_grid,
+    render_day_cell,
+)
 
 
 def test_render_day_cell_keeps_events_and_planner_sections_separate():
@@ -33,9 +39,24 @@ def test_render_day_cell_marks_selected_and_out_of_month_days():
     )
 
     lines = render_day_cell(cell, width=20, height=8)
-    assert lines[0].startswith("+")
     assert any("[1]" in line for line in lines)
     assert any("(其他月)" in line for line in lines)
+
+
+def test_render_day_cell_marks_selected_bucket_inside_selected_day():
+    cell = DayCell(
+        day=date(2026, 7, 10),
+        imported_events=[],
+        morning=["看论文"],
+        afternoon=["改简历"],
+        evening=[],
+        in_month=True,
+        selected=True,
+        selected_bucket="午",
+    )
+
+    lines = render_day_cell(cell, width=20, height=8)
+    assert any(">午:" in line for line in lines)
 
 
 def test_build_month_grid_creates_calendar_rows():
@@ -108,7 +129,7 @@ def test_render_day_cell_wraps_long_text_without_overflow():
 
     lines = render_day_cell(cell, width=22, height=10)
     assert len(lines) == 10
-    assert all(len(line) == 22 for line in lines)
+    assert all(_display_width(line) == 22 for line in lines)
     assert any("成田T2-香港T1" in line for line in lines)
     assert any("修改一段非常非常长" in line for line in lines)
 
@@ -125,4 +146,20 @@ def test_render_day_cell_shows_overflow_hint_when_space_runs_out():
     )
 
     lines = render_day_cell(cell, width=18, height=8)
-    assert lines[-2].strip("| ").startswith("...")
+    assert lines[-1].strip() == "..."
+    assert "v 12" not in lines[-1]
+
+
+def test_render_day_cell_uses_display_width_for_cjk_alignment():
+    cell = DayCell(
+        day=date(2026, 7, 30),
+        imported_events=["22:20 白云T3-香港T1-国泰"],
+        morning=["制作简历"],
+        afternoon=["看HappyLLM并做笔记"],
+        evening=["修改ACM ISS论文"],
+        in_month=True,
+        selected=False,
+    )
+
+    lines = render_day_cell(cell, width=16, height=8)
+    assert all(_display_width(line) == 16 for line in lines)

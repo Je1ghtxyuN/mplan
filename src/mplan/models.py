@@ -38,3 +38,16 @@ class PlannerItem:
 
     def with_completed(self, completed: bool) -> "PlannerItem":
         return replace(self, completed=completed, updated_at=datetime.now(UTC))
+
+    def with_text(self, text: str) -> "PlannerItem":
+        return replace(self, text=text, updated_at=datetime.now(UTC))
+
+
+@dataclass(frozen=True)
+class ImportedCalendarEvent:
+    id: str
+    title: str
+    starts_at: datetime
+    ends_at: datetime
+    calendar_name: str
+    notes: str | None = None

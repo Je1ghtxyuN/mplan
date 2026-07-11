@@ -23,6 +23,9 @@ class SyncEngine:
         events = self.bridge.list_timed_events(month_start, month_end)
         return [event for event in events if not self._is_owned_event(event)]
 
+    def cached_month(self, year: int, month: int) -> list:
+        return self.store.list_imported_events_in_month(year, month)
+
     def refresh_month_imports(self, year: int, month: int) -> tuple[list, str | None]:
         month_start, month_end = self._month_bounds(year, month)
         try:

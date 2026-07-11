@@ -129,6 +129,8 @@ on nullable_event_id(eventIdValue)
     if eventIdValue is "" then return "null"
     return "\\"" & my escape_json(eventIdValue) & "\\""
 end nullable_event_id
+
+{self._json_escape_handlers()}
 """
         try:
             payload = json.loads(self._run_script(script))
@@ -138,7 +140,7 @@ end nullable_event_id
             subprocess.TimeoutExpired,
             FileNotFoundError,
         ) as exc:
-            raise RuntimeError(self._icloud_target_calendar_error()) from exc
+            raise RuntimeError(self._target_calendar_error(exc)) from exc
 
     def delete_owned_event(self, event_id: str) -> None:
         script = f"""
@@ -156,7 +158,9 @@ tell application "Calendar"
 end tell
 return "missing"
 """
-        self._run_script(script)
+        result = self._run_script(script)
+        if result != "ok":
+            raise RuntimeError(f"未找到 mplan 日历事件: {event_id}")
 
     def healthcheck(self) -> tuple[bool, str]:
         try:
@@ -173,7 +177,7 @@ return "missing"
         script = f"""
 tell application "Calendar"
 {self._icloud_target_calendar_block(create_if_missing=True)}
-    return "iCloud::" & name of targetCalendar
+    return "Calendar::" & name of targetCalendar
 end tell
 """
         try:
@@ -183,7 +187,7 @@ end tell
             subprocess.TimeoutExpired,
             FileNotFoundError,
         ) as exc:
-            raise RuntimeError(self._icloud_target_calendar_error()) from exc
+            raise RuntimeError(self._target_calendar_error(exc)) from exc
 
     def calendar_status(self) -> tuple[bool, str]:
         try:
@@ -203,8 +207,7 @@ end tell
             """
     if targetCalendar is missing value then
         if nonWritableTargetCalendar is not missing value then error "{error_message}"
-        if iCloudSource is missing value then error "{error_message}"
-        set targetCalendar to make new calendar at end of calendars with properties {{name:targetCalendarName, container:iCloudSource}}
+        error "{error_message}"
     end if
 """.strip()
             if create_if_missing
@@ -212,29 +215,50 @@ end tell
         )
         return f"""
     set targetCalendarName to "{self.TARGET_CALENDAR_NAME}"
-    set iCloudSource to missing value
     set targetCalendar to missing value
     set nonWritableTargetCalendar to missing value
     repeat with cal in calendars
-        try
-            set containerName to name of its container
-            if containerName contains "iCloud" then
-                set iCloudSource to its container
-                if name of cal is targetCalendarName and writable of cal then
-                    set targetCalendar to cal
-                    exit repeat
-                else if name of cal is targetCalendarName then
-                    set nonWritableTargetCalendar to cal
-                    exit repeat
-                end if
+        if name of cal is targetCalendarName then
+            if writable of cal then
+                set targetCalendar to cal
+                exit repeat
+            else
+                set nonWritableTargetCalendar to cal
             end if
-        end try
+        end if
     end repeat
 {creation_block.format(error_message=self._icloud_target_calendar_error()) if create_if_missing else ""}
 """.strip()
 
     def _icloud_target_calendar_error(self) -> str:
-        return "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
+        return (
+            "无法写入 mplan 日历；请先在 Calendar.app 的 iCloud 账号下"
+            "手动新建一个名为 mplan 的可写日历"
+        )
+
+    def _target_calendar_error(self, exc: Exception | None = None) -> str:
+        message = self._icloud_target_calendar_error()
+        if exc is None:
+            return message
+        detail = self._script_error_detail(exc)
+        if not detail:
+            return message
+        if self._looks_like_calendar_automation_failure(detail):
+            return (
+                f"{message}；Calendar.app 自动化无法读取日历列表，"
+                "请在系统设置 > 隐私与安全性中允许当前终端/Python 访问日历和自动化"
+            )
+        return f"{message}；底层错误: {detail}"
+
+    def _script_error_detail(self, exc: Exception) -> str:
+        if isinstance(exc, subprocess.CalledProcessError):
+            return (exc.stderr or exc.output or str(exc)).strip().splitlines()[-1]
+        return str(exc)
+
+    def _looks_like_calendar_automation_failure(self, detail: str) -> bool:
+        if "calendars" in detail and ("没有定义" in detail or "not defined" in detail):
+            return True
+        return "类名称" in detail or "class name" in detail
 
     def _list_script(self, month_start: date, month_end: date) -> str:
         range_start = datetime.combine(month_start, time(0, 0, 0))
@@ -286,6 +310,11 @@ on iso_datetime(theDate)
     return (yyyy as text) & "-" & mm & "-" & dd & "T" & hh & ":" & mi & ":" & ss
 end iso_datetime
 
+{self._json_escape_handlers()}
+"""
+
+    def _json_escape_handlers(self) -> str:
+        return """
 on escape_json(textValue)
     set escapedText to my replace_text(textValue, "\\\\", "\\\\\\\\")
     set escapedText to my replace_text(escapedText, "\\"", "\\\\\\"")
@@ -302,7 +331,7 @@ on replace_text(theText, searchString, replacementString)
     set AppleScript's text item delimiters to ""
     return theText
 end replace_text
-"""
+""".strip()
 
     def _escape(self, value: str) -> str:
         return value.replace("\\", "\\\\").replace('"', '\\"')

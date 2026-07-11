@@ -142,7 +142,7 @@ def test_delete_targets_calendar_event(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: captured.setdefault("script", script) or "ok",
+        lambda script: (captured.setdefault("script", script), "ok")[1],
     )
 
     bridge.delete_owned_event("evt-456")
@@ -156,7 +156,7 @@ def test_delete_only_targets_event_in_resolved_calendar(monkeypatch):
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: (captured.setdefault("script", script), "missing")[1],
+        lambda script: (captured.setdefault("script", script), "ok")[1],
     )
 
     bridge.delete_owned_event("evt-456")
@@ -167,35 +167,54 @@ def test_delete_only_targets_event_in_resolved_calendar(monkeypatch):
     assert "delete targetEvent" in captured["script"]
 
 
-def test_ensure_target_calendar_uses_existing_icloud_mplan(monkeypatch):
+def test_delete_owned_event_raises_when_calendar_event_is_missing(monkeypatch):
+    bridge = CalendarBridge()
+    monkeypatch.setattr(bridge, "_run_script", lambda script: "missing")
+
+    try:
+        bridge.delete_owned_event("evt-missing")
+    except RuntimeError as exc:
+        assert "未找到" in str(exc)
+    else:
+        raise AssertionError("expected missing Calendar event to fail deletion")
+
+
+def test_delete_owned_event_accepts_explicit_ok(monkeypatch):
+    bridge = CalendarBridge()
+    monkeypatch.setattr(bridge, "_run_script", lambda script: "ok")
+
+    bridge.delete_owned_event("evt-456")
+
+
+def test_ensure_target_calendar_uses_existing_mplan_calendar(monkeypatch):
     bridge = CalendarBridge()
     captured = {}
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: (captured.setdefault("script", script), "iCloud::mplan")[1],
+        lambda script: (captured.setdefault("script", script), "Calendar::mplan")[1],
     )
 
-    assert bridge.ensure_target_calendar() == "iCloud::mplan"
+    assert bridge.ensure_target_calendar() == "Calendar::mplan"
     assert 'set targetCalendarName to "mplan"' in captured["script"]
-    assert "iCloud" in captured["script"]
+    assert "if name of cal is targetCalendarName then" in captured["script"]
+    assert "container" not in captured["script"]
 
 
-def test_ensure_target_calendar_creates_icloud_mplan_when_missing(monkeypatch):
+def test_ensure_target_calendar_errors_when_mplan_calendar_is_missing(monkeypatch):
     bridge = CalendarBridge()
     captured = {}
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: (captured.setdefault("script", script), "iCloud::mplan")[1],
+        lambda script: (captured.setdefault("script", script), "Calendar::mplan")[1],
     )
 
-    assert bridge.ensure_target_calendar() == "iCloud::mplan"
-    assert (
-        'set targetCalendar to make new calendar at end of calendars with properties {name:targetCalendarName, container:iCloudSource}'
-        in captured["script"]
-    )
-    assert 'if iCloudSource is missing value then error "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"' in captured["script"]
+    assert bridge.ensure_target_calendar() == "Calendar::mplan"
+    assert "error " in captured["script"]
+    assert "create calendar" not in captured["script"]
+    assert "make new calendar" not in captured["script"]
+    assert "iCloudSource" not in captured["script"]
 
 
 def test_ensure_target_calendar_errors_when_existing_icloud_mplan_is_not_writable(
@@ -206,15 +225,15 @@ def test_ensure_target_calendar_errors_when_existing_icloud_mplan_is_not_writabl
     monkeypatch.setattr(
         bridge,
         "_run_script",
-        lambda script: (captured.setdefault("script", script), "iCloud::mplan")[1],
+        lambda script: (captured.setdefault("script", script), "Calendar::mplan")[1],
     )
 
-    assert bridge.ensure_target_calendar() == "iCloud::mplan"
+    assert bridge.ensure_target_calendar() == "Calendar::mplan"
     assert "set nonWritableTargetCalendar to cal" in captured["script"]
     assert "if nonWritableTargetCalendar is not missing value then error" in captured[
         "script"
     ]
-    assert "set targetCalendar to make new calendar" in captured["script"]
+    assert "create calendar" not in captured["script"]
 
 
 def test_upsert_owned_event_targets_icloud_mplan_calendar(monkeypatch):
@@ -230,10 +249,9 @@ def test_upsert_owned_event_targets_icloud_mplan_calendar(monkeypatch):
     assert bridge.upsert_owned_event(item, order_index=0) == ("evt-1", None)
     assert 'set targetCalendarName to "mplan"' in captured["script"]
     assert "item 1 of writableCalendars" not in captured["script"]
-    assert (
-        'make new calendar at end of calendars with properties {name:targetCalendarName, container:iCloudSource}'
-        in captured["script"]
-    )
+    assert "create calendar" not in captured["script"]
+    assert "on escape_json(textValue)" in captured["script"]
+    assert "on replace_text(theText, searchString, replacementString)" in captured["script"]
 
 
 def test_upsert_owned_event_returns_new_uid_and_old_uid_for_local_migration(
@@ -269,7 +287,7 @@ def test_upsert_owned_event_surfaces_explicit_icloud_failure(monkeypatch):
 
     with pytest.raises(
         RuntimeError,
-        match="未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步",
+        match="无法写入 mplan 日历",
     ):
         bridge.upsert_owned_event(
             PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="看论文"),
@@ -293,14 +311,54 @@ def test_calendar_status_reports_explicit_icloud_failure(monkeypatch):
     ok, detail = bridge.calendar_status()
 
     assert ok is False
-    assert detail == "未找到可写的 iCloud 日历，请先在 Calendar.app 登录 iCloud 并启用日历同步"
+    assert detail.startswith("无法写入 mplan 日历")
 
 
-def test_calendar_status_reports_icloud_target(monkeypatch):
+def test_calendar_status_explains_missing_calendars_automation_permission(monkeypatch):
     bridge = CalendarBridge()
-    monkeypatch.setattr(bridge, "_run_script", lambda script: "iCloud::mplan")
+
+    def raise_called_process_error(script):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["osascript"],
+            output="",
+            stderr='177:186: execution error: 变量“calendars”没有定义。 (-2753)',
+        )
+
+    monkeypatch.setattr(bridge, "_run_script", raise_called_process_error)
+
+    ok, detail = bridge.calendar_status()
+
+    assert ok is False
+    assert "Calendar.app 自动化无法读取日历列表" in detail
+    assert "访问日历和自动化" in detail
+
+
+def test_upsert_explains_calendar_dictionary_compile_failure(monkeypatch):
+    bridge = CalendarBridge()
+
+    def raise_called_process_error(script):
+        raise subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["osascript"],
+            output="",
+            stderr="27:31: syntax error: 预期是行的结尾等等，却找到类名称。 (-2741)",
+        )
+
+    monkeypatch.setattr(bridge, "_run_script", raise_called_process_error)
+
+    with pytest.raises(RuntimeError, match="Calendar.app 自动化无法读取日历列表"):
+        bridge.upsert_owned_event(
+            PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="看论文"),
+            order_index=0,
+        )
+
+
+def test_calendar_status_reports_calendar_target(monkeypatch):
+    bridge = CalendarBridge()
+    monkeypatch.setattr(bridge, "_run_script", lambda script: "Calendar::mplan")
 
     ok, detail = bridge.calendar_status()
 
     assert ok is True
-    assert detail == "iCloud::mplan"
+    assert detail == "Calendar::mplan"
