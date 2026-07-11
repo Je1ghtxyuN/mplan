@@ -720,4 +720,3 @@ git commit -m "docs: describe command mode controls"
   - no `TODO`, `TBD`, or implicit “handle appropriately” steps remain
 - Type consistency:
   - later tasks consistently reference `Store.create_planner_item`, `Store.update_planner_item`, `create_bucket_task`, `update_bucket_task`, `build_detail_view`, and `_handle_command_key`
-

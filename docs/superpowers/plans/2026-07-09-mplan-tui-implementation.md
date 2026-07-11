@@ -861,4 +861,3 @@ Expected: PASS
 git add tests/test_tui.py tests/test_cli.py README.md
 git commit -m "docs: document tui controls"
 ```
-

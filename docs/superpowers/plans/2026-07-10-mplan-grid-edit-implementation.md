@@ -511,4 +511,3 @@ Expected: PASS
 git add README.md tests/test_cli.py tests/test_app.py
 git commit -m "docs: describe grid editor controls"
 ```
-
