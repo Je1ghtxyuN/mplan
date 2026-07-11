@@ -193,6 +193,14 @@ def _handle_detail_command(
 ) -> dict[str, object]:
     if key == "ESC":
         return _close_detail_view(state)
+    if key == "i" and not items:
+        return {
+            **state,
+            "mode": "INSERT",
+            "buffer": "",
+            "edit_item": None,
+            "status": "新建任务",
+        }
     if not items:
         return {**state, "detail_task_index": 0, "status": "没有可操作的本地任务"}
 

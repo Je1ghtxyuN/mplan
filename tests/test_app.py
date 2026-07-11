@@ -490,6 +490,27 @@ def test_detail_i_enters_edit_mode_for_selected_task():
     assert updated["detail_open"] is True
 
 
+def test_detail_i_starts_new_task_when_day_has_no_local_tasks():
+    state = {
+        "detail_open": True,
+        "detail_task_index": 0,
+        "status": "",
+        "mode": "NORMAL",
+        "bucket": "午",
+    }
+
+    updated = app._handle_detail_command(
+        state, "i", [], lambda *_: None, lambda *_: None
+    )
+
+    assert updated["mode"] == "INSERT"
+    assert updated["buffer"] == ""
+    assert updated["edit_item"] is None
+    assert updated["bucket"] == "午"
+    assert updated["detail_open"] is True
+    assert updated["status"] == "新建任务"
+
+
 def test_insert_escape_updates_existing_detail_task_and_returns_to_detail():
     item = PlannerItem.new(day=date(2026, 7, 10), bucket="午", text="旧文字")
     saved = []
