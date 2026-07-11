@@ -68,6 +68,7 @@ The month view uses `NORMAL`, `INSERT`, and `COMMAND` modes:
 Inside the detail overlay:
 
 - `↑` / `↓` selects a local mplan task.
+- `i` edits the selected task; `Esc` saves the updated text.
 - `Space` toggles the selected task between complete and incomplete.
 - `d` deletes the selected local task.
 - `Esc` closes the overlay.

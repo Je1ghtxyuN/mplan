@@ -47,7 +47,7 @@ def test_handle_insert_key_escape_saves_and_returns_normal():
     updated = app._handle_insert_key(
         state,
         "ESC",
-        save_func=lambda day, bucket, raw: saved.append((day, bucket, raw)),
+        save_func=lambda day, bucket, raw, existing=None: saved.append((day, bucket, raw)),
     )
 
     assert saved == [(date(2026, 7, 10), "午", "resume | english")]
@@ -69,7 +69,7 @@ def test_handle_insert_key_enter_does_not_save_or_exit():
     updated = app._handle_insert_key(
         state,
         "ENTER",
-        save_func=lambda day, bucket, raw: saved.append((day, bucket, raw)),
+        save_func=lambda day, bucket, raw, existing=None: saved.append((day, bucket, raw)),
     )
 
     assert saved == []
@@ -305,6 +305,7 @@ def test_read_key_returns_escape_when_no_followup_bytes_arrive(monkeypatch):
     monkeypatch.setattr(app.termios, "tcgetattr", lambda fd: "settings")
     monkeypatch.setattr(app.termios, "tcsetattr", lambda fd, when, settings: None)
     monkeypatch.setattr(app.tty, "setraw", lambda fd: None)
+    monkeypatch.setattr(app.os, "read", lambda fd, size: b"\x1b")
     monkeypatch.setattr(app.time, "monotonic", lambda: next(times))
     monkeypatch.setattr(app.select, "select", lambda reads, writes, errors, timeout: ([], [], []))
 
@@ -337,6 +338,8 @@ def test_read_key_reassembles_arrow_sequence_within_single_call(monkeypatch):
     monkeypatch.setattr(app.termios, "tcgetattr", lambda fd: "settings")
     monkeypatch.setattr(app.termios, "tcsetattr", lambda fd, when, settings: None)
     monkeypatch.setattr(app.tty, "setraw", lambda fd: None)
+    raw_bytes = iter([b"\x1b", b"[", b"C"])
+    monkeypatch.setattr(app.os, "read", lambda fd, size: next(raw_bytes))
     monkeypatch.setattr(app.time, "monotonic", fake_monotonic)
     monkeypatch.setattr(
         app.select,
@@ -373,6 +376,8 @@ def test_read_key_supports_ss3_arrow_sequence_within_single_call(monkeypatch):
     monkeypatch.setattr(app.termios, "tcgetattr", lambda fd: "settings")
     monkeypatch.setattr(app.termios, "tcsetattr", lambda fd, when, settings: None)
     monkeypatch.setattr(app.tty, "setraw", lambda fd: None)
+    raw_bytes = iter([b"\x1b", b"O", b"C"])
+    monkeypatch.setattr(app.os, "read", lambda fd, size: next(raw_bytes))
     monkeypatch.setattr(app.time, "monotonic", fake_monotonic)
     monkeypatch.setattr(
         app.select,
@@ -469,6 +474,88 @@ def test_detail_space_toggles_selected_task_completion():
 
     assert toggled == [(item.id, True)]
     assert updated["status"] == "已完成"
+
+
+def test_detail_i_enters_edit_mode_for_selected_task():
+    item = PlannerItem.new(day=date(2026, 7, 10), bucket="午", text="旧文字")
+    state = {"detail_open": True, "detail_task_index": 0, "status": "", "mode": "NORMAL"}
+
+    updated = app._handle_detail_command(
+        state, "i", [item], lambda *_: None, lambda *_: None
+    )
+
+    assert updated["mode"] == "INSERT"
+    assert updated["buffer"] == "旧文字"
+    assert updated["edit_item"] == item
+    assert updated["detail_open"] is True
+
+
+def test_insert_escape_updates_existing_detail_task_and_returns_to_detail():
+    item = PlannerItem.new(day=date(2026, 7, 10), bucket="午", text="旧文字")
+    saved = []
+    state = {
+        "selected": item.day,
+        "bucket": item.bucket,
+        "mode": "INSERT",
+        "buffer": "新文字",
+        "edit_item": item,
+        "detail_open": True,
+        "status": "",
+    }
+
+    updated = app._handle_insert_key(
+        state,
+        "ESC",
+        save_func=lambda day, bucket, raw, existing: saved.append(
+            (day, bucket, raw, existing)
+        ),
+    )
+
+    assert saved == [(item.day, item.bucket, "新文字", item)]
+    assert updated["mode"] == "NORMAL"
+    assert updated["detail_open"] is True
+    assert updated["edit_item"] is None
+    assert updated["status"] == "已更新"
+
+
+def test_read_key_uses_unbuffered_fd_bytes_for_arrow_sequence(monkeypatch):
+    class BufferedStdin:
+        def isatty(self):
+            return True
+
+        def fileno(self):
+            return 7
+
+        def read(self, size):
+            raise AssertionError("text-buffered read must not be used")
+
+    raw_bytes = iter([b"\x1b", b"[", b"B"])
+    monkeypatch.setattr(app.sys, "stdin", BufferedStdin())
+    monkeypatch.setattr(app.termios, "tcgetattr", lambda fd: "settings")
+    monkeypatch.setattr(app.termios, "tcsetattr", lambda fd, when, settings: None)
+    monkeypatch.setattr(app.tty, "setraw", lambda fd: None)
+    monkeypatch.setattr(app.select, "select", lambda reads, writes, errors, timeout: ([7], [], []))
+    monkeypatch.setattr(app.os, "read", lambda fd, size: next(raw_bytes))
+
+    assert app._read_key("NORMAL") == "DOWN"
+
+
+def test_read_key_decodes_multibyte_utf8_character_from_raw_fd(monkeypatch):
+    class TtyStdin:
+        def isatty(self):
+            return True
+
+        def fileno(self):
+            return 7
+
+    raw_bytes = iter([bytes([value]) for value in "中".encode("utf-8")])
+    monkeypatch.setattr(app.sys, "stdin", TtyStdin())
+    monkeypatch.setattr(app.termios, "tcgetattr", lambda fd: "settings")
+    monkeypatch.setattr(app.termios, "tcsetattr", lambda fd, when, settings: None)
+    monkeypatch.setattr(app.tty, "setraw", lambda fd: None)
+    monkeypatch.setattr(app.os, "read", lambda fd, size: next(raw_bytes))
+
+    assert app._read_key("INSERT") == "中"
 
 
 def test_detail_deletes_unsynced_task_locally():

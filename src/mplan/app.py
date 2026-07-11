@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import date
 from datetime import timedelta
 from io import StringIO
+import os
 import select
 import shutil
 import sys
@@ -42,6 +43,7 @@ def run_app(store, sync_engine) -> int:
         "command_buffer": "",
         "detail_open": False,
         "detail_task_index": 0,
+        "edit_item": None,
         "status": "",
     }
     while True:
@@ -67,7 +69,9 @@ def run_app(store, sync_engine) -> int:
             state = _handle_insert_key(
                 state,
                 command,
-                save_func=lambda day, bucket, raw: _save_new_task(store, day, bucket, raw),
+                save_func=lambda day, bucket, raw, existing: _save_task(
+                    store, day, bucket, raw, existing
+                ),
             )
             continue
         if state.get("detail_open"):
@@ -117,7 +121,7 @@ def _render_app(store, sync_engine, state: dict[str, object]) -> None:
             visible_rows,
         )
         if not status:
-            status = "↑↓选择 Space完成/取消 d删除 Esc关闭"
+            status = "↑↓选择 i编辑 Space完成/取消 d删除 Esc关闭"
     statusline = build_statusline(mode, selected, bucket, status, buffer=buffer)
     statusline = statusline.replace(mode, colorize_mode_label(mode), 1)
 
@@ -197,6 +201,16 @@ def _handle_detail_command(
         return {**state, "detail_task_index": max(0, index - 1), "status": ""}
     if key == "DOWN":
         return {**state, "detail_task_index": min(len(items) - 1, index + 1), "status": ""}
+    if key == "i":
+        item = items[index]
+        return {
+            **state,
+            "mode": "INSERT",
+            "bucket": item.bucket,
+            "buffer": item.text,
+            "edit_item": item,
+            "status": "编辑任务",
+        }
     if key == " ":
         item = items[index]
         try:
@@ -218,7 +232,11 @@ def _handle_detail_command(
             "detail_task_index": min(index, max(0, len(items) - 2)),
             "status": "已删除",
         }
-    return {**state, "detail_task_index": index, "status": "↑↓选择 Space完成/取消 d删除 Esc关闭"}
+    return {
+        **state,
+        "detail_task_index": index,
+        "status": "↑↓选择 i编辑 Space完成/取消 d删除 Esc关闭",
+    }
 
 
 def _delete_task(store, sync_engine, item) -> None:
@@ -251,8 +269,14 @@ def _handle_insert_key(
     save_func,
 ) -> dict[str, object]:
     if key == "ESC":
-        save_func(state["selected"], state["bucket"], state["buffer"])
-        return {**state, "mode": "NORMAL", "status": "已保存"}
+        existing = state.get("edit_item")
+        save_func(state["selected"], state["bucket"], state["buffer"], existing)
+        return {
+            **state,
+            "mode": "NORMAL",
+            "edit_item": None,
+            "status": "已更新" if existing else "已保存",
+        }
     if key == "ENTER":
         return state
     if key == "BACKSPACE":
@@ -309,9 +333,12 @@ def _render_detail_overlay(
     return overlay_rows
 
 
-def _save_new_task(store, day: date, bucket: PlannerBucket, raw: str) -> None:
+def _save_task(store, day: date, bucket: PlannerBucket, raw: str, existing=None) -> None:
     text = raw.strip()
     if not text:
+        return
+    if existing is not None:
+        store.update_planner_item(existing.with_text(text))
         return
     create_bucket_task(store, day, bucket, text)
 
@@ -379,7 +406,7 @@ def _read_key(mode: str = "NORMAL") -> str:
     old_settings = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
-        first = sys.stdin.read(1)
+        first = _read_fd_char(fd)
         if first == "\x1b":
             sequence = ""
             timeout_window = (
@@ -392,7 +419,7 @@ def _read_key(mode: str = "NORMAL") -> str:
                 timeout = max(0.0, deadline - time.monotonic())
                 if not select.select([sys.stdin], [], [], timeout)[0]:
                     break
-                sequence += sys.stdin.read(1)
+                sequence += _read_fd_char(fd)
                 if sequence[-1] == "~":
                     break
                 if len(sequence) > 1 and sequence[-1].isalpha():
@@ -405,6 +432,28 @@ def _read_key(mode: str = "NORMAL") -> str:
         return first
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def _read_fd_char(fd: int) -> str:
+    first = os.read(fd, 1)
+    if not first:
+        return ""
+    lead = first[0]
+    expected = 1
+    if lead & 0b11110000 == 0b11110000:
+        expected = 4
+    elif lead & 0b11100000 == 0b11100000:
+        expected = 3
+    elif lead & 0b11000000 == 0b11000000:
+        expected = 2
+
+    raw = bytearray(first)
+    while len(raw) < expected:
+        chunk = os.read(fd, expected - len(raw))
+        if not chunk:
+            break
+        raw.extend(chunk)
+    return bytes(raw).decode("utf-8", errors="replace")
 
 
 def _decode_escape_sequence(sequence: str) -> str:
