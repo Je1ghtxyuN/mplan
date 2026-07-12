@@ -511,6 +511,45 @@ def test_detail_i_starts_new_task_when_day_has_no_local_tasks():
     assert updated["status"] == "新建任务"
 
 
+def test_detail_tab_cycles_bucket_and_selects_first_task_in_new_bucket():
+    morning = PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="早任务")
+    afternoon = PlannerItem.new(day=date(2026, 7, 12), bucket="午", text="午任务")
+    state = {
+        "detail_open": True,
+        "detail_task_index": 0,
+        "status": "",
+        "mode": "NORMAL",
+        "bucket": "早",
+    }
+
+    updated = app._handle_detail_command(
+        state, "\t", [morning, afternoon], lambda *_: None, lambda *_: None
+    )
+
+    assert updated["bucket"] == "午"
+    assert updated["detail_task_index"] == 1
+
+
+def test_detail_i_adds_to_current_bucket_when_only_other_buckets_have_tasks():
+    morning = PlannerItem.new(day=date(2026, 7, 12), bucket="早", text="早任务")
+    state = {
+        "detail_open": True,
+        "detail_task_index": 0,
+        "status": "",
+        "mode": "NORMAL",
+        "bucket": "午",
+    }
+
+    updated = app._handle_detail_command(
+        state, "i", [morning], lambda *_: None, lambda *_: None
+    )
+
+    assert updated["mode"] == "INSERT"
+    assert updated["bucket"] == "午"
+    assert updated["edit_item"] is None
+    assert updated["buffer"] == ""
+
+
 def test_insert_escape_updates_existing_detail_task_and_returns_to_detail():
     item = PlannerItem.new(day=date(2026, 7, 10), bucket="午", text="旧文字")
     saved = []
@@ -577,6 +616,31 @@ def test_read_key_decodes_multibyte_utf8_character_from_raw_fd(monkeypatch):
     monkeypatch.setattr(app.os, "read", lambda fd, size: next(raw_bytes))
 
     assert app._read_key("INSERT") == "中"
+
+
+def test_read_key_queues_all_characters_from_one_ime_commit(monkeypatch):
+    class TtyStdin:
+        def isatty(self):
+            return True
+
+        def fileno(self):
+            return 7
+
+    reads = []
+    monkeypatch.setattr(app.sys, "stdin", TtyStdin())
+    monkeypatch.setattr(app.termios, "tcgetattr", lambda fd: "settings")
+    monkeypatch.setattr(app.termios, "tcsetattr", lambda fd, when, settings: None)
+    monkeypatch.setattr(app.tty, "setraw", lambda fd: None)
+    monkeypatch.setattr(
+        app.os,
+        "read",
+        lambda fd, size: reads.append((fd, size)) or "你好呀".encode("utf-8"),
+    )
+
+    assert app._read_key("INSERT") == "你"
+    assert app._read_key("INSERT") == "好"
+    assert app._read_key("INSERT") == "呀"
+    assert len(reads) == 1
 
 
 def test_detail_deletes_unsynced_task_locally():

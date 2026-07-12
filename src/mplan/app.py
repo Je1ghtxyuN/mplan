@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import date
 from datetime import timedelta
 from io import StringIO
@@ -30,6 +30,8 @@ _PENDING_KEY_BYTES = ""
 _PENDING_KEY_DEADLINE = 0.0
 _ESC_SEQUENCE_TIMEOUT_NORMAL = 0.35
 _ESC_SEQUENCE_TIMEOUT_INSERT = 0.08
+_PENDING_INPUT_CHARS: deque[str] = deque()
+_PENDING_INPUT_BYTES = bytearray()
 
 
 def run_app(store, sync_engine) -> int:
@@ -121,7 +123,7 @@ def _render_app(store, sync_engine, state: dict[str, object]) -> None:
             visible_rows,
         )
         if not status:
-            status = "↑↓选择 i编辑 Space完成/取消 d删除 Esc关闭"
+            status = "Tab切分区 ↑↓选择 i编辑/新增 Space完成/取消 d删除 Esc关闭"
     statusline = build_statusline(mode, selected, bucket, status, buffer=buffer)
     statusline = statusline.replace(mode, colorize_mode_label(mode), 1)
 
@@ -193,7 +195,27 @@ def _handle_detail_command(
 ) -> dict[str, object]:
     if key == "ESC":
         return _close_detail_view(state)
-    if key == "i" and not items:
+
+    bucket = state.get("bucket")
+    bucket_indices = [
+        index
+        for index, item in enumerate(items)
+        if bucket is None or getattr(item, "bucket", bucket) == bucket
+    ]
+    if key == "\t":
+        next_bucket = cycle_bucket(bucket or "早")
+        next_indices = [
+            index
+            for index, item in enumerate(items)
+            if getattr(item, "bucket", next_bucket) == next_bucket
+        ]
+        return {
+            **state,
+            "bucket": next_bucket,
+            "detail_task_index": next_indices[0] if next_indices else None,
+            "status": "",
+        }
+    if key == "i" and not bucket_indices:
         return {
             **state,
             "mode": "INSERT",
@@ -204,11 +226,30 @@ def _handle_detail_command(
     if not items:
         return {**state, "detail_task_index": 0, "status": "没有可操作的本地任务"}
 
-    index = max(0, min(int(state.get("detail_task_index", 0)), len(items) - 1))
+    if not bucket_indices:
+        return {
+            **state,
+            "detail_task_index": None,
+            "status": "当前分区没有本地任务，按i新增",
+        }
+
+    current_index = state.get("detail_task_index")
+    index = current_index if current_index in bucket_indices else bucket_indices[0]
+    bucket_position = bucket_indices.index(index)
     if key == "UP":
-        return {**state, "detail_task_index": max(0, index - 1), "status": ""}
+        return {
+            **state,
+            "detail_task_index": bucket_indices[max(0, bucket_position - 1)],
+            "status": "",
+        }
     if key == "DOWN":
-        return {**state, "detail_task_index": min(len(items) - 1, index + 1), "status": ""}
+        return {
+            **state,
+            "detail_task_index": bucket_indices[
+                min(len(bucket_indices) - 1, bucket_position + 1)
+            ],
+            "status": "",
+        }
     if key == "i":
         item = items[index]
         return {
@@ -243,7 +284,7 @@ def _handle_detail_command(
     return {
         **state,
         "detail_task_index": index,
-        "status": "↑↓选择 i编辑 Space完成/取消 d删除 Esc关闭",
+        "status": "Tab切分区 ↑↓选择 i编辑/新增 Space完成/取消 d删除 Esc关闭",
     }
 
 
@@ -425,7 +466,9 @@ def _read_key(mode: str = "NORMAL") -> str:
             deadline = time.monotonic() + timeout_window
             while time.monotonic() < deadline:
                 timeout = max(0.0, deadline - time.monotonic())
-                if not select.select([sys.stdin], [], [], timeout)[0]:
+                if not _PENDING_INPUT_CHARS and not select.select(
+                    [sys.stdin], [], [], timeout
+                )[0]:
                     break
                 sequence += _read_fd_char(fd)
                 if sequence[-1] == "~":
@@ -443,25 +486,23 @@ def _read_key(mode: str = "NORMAL") -> str:
 
 
 def _read_fd_char(fd: int) -> str:
-    first = os.read(fd, 1)
-    if not first:
-        return ""
-    lead = first[0]
-    expected = 1
-    if lead & 0b11110000 == 0b11110000:
-        expected = 4
-    elif lead & 0b11100000 == 0b11100000:
-        expected = 3
-    elif lead & 0b11000000 == 0b11000000:
-        expected = 2
+    if _PENDING_INPUT_CHARS:
+        return _PENDING_INPUT_CHARS.popleft()
 
-    raw = bytearray(first)
-    while len(raw) < expected:
-        chunk = os.read(fd, expected - len(raw))
+    while not _PENDING_INPUT_CHARS:
+        chunk = os.read(fd, 64)
         if not chunk:
-            break
-        raw.extend(chunk)
-    return bytes(raw).decode("utf-8", errors="replace")
+            return ""
+        _PENDING_INPUT_BYTES.extend(chunk)
+        try:
+            decoded = bytes(_PENDING_INPUT_BYTES).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            if exc.reason == "unexpected end of data":
+                continue
+            decoded = bytes(_PENDING_INPUT_BYTES).decode("utf-8", errors="replace")
+        _PENDING_INPUT_BYTES.clear()
+        _PENDING_INPUT_CHARS.extend(decoded)
+    return _PENDING_INPUT_CHARS.popleft()
 
 
 def _decode_escape_sequence(sequence: str) -> str:
