@@ -123,7 +123,7 @@ def _render_app(store, sync_engine, state: dict[str, object]) -> None:
             visible_rows,
         )
         if not status:
-            status = "Tab切分区 ↑↓选择 i编辑/新增 Space完成/取消 d删除 Esc关闭"
+            status = "Tab切分区 ↑↓选择 i新增 e编辑 Space完成/取消 d删除 Esc关闭"
     statusline = build_statusline(mode, selected, bucket, status, buffer=buffer)
     statusline = statusline.replace(mode, colorize_mode_label(mode), 1)
 
@@ -215,13 +215,19 @@ def _handle_detail_command(
             "detail_task_index": next_indices[0] if next_indices else None,
             "status": "",
         }
-    if key == "i" and not bucket_indices:
+    if key == "i":
         return {
             **state,
             "mode": "INSERT",
             "buffer": "",
             "edit_item": None,
             "status": "新建任务",
+        }
+    if key == "e" and not bucket_indices:
+        return {
+            **state,
+            "detail_task_index": None,
+            "status": "当前分区没有可编辑任务",
         }
     if not items:
         return {**state, "detail_task_index": 0, "status": "没有可操作的本地任务"}
@@ -250,7 +256,7 @@ def _handle_detail_command(
             ],
             "status": "",
         }
-    if key == "i":
+    if key == "e":
         item = items[index]
         return {
             **state,
@@ -284,7 +290,7 @@ def _handle_detail_command(
     return {
         **state,
         "detail_task_index": index,
-        "status": "Tab切分区 ↑↓选择 i编辑/新增 Space完成/取消 d删除 Esc关闭",
+        "status": "Tab切分区 ↑↓选择 i新增 e编辑 Space完成/取消 d删除 Esc关闭",
     }
 
 

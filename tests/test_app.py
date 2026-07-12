@@ -476,18 +476,57 @@ def test_detail_space_toggles_selected_task_completion():
     assert updated["status"] == "已完成"
 
 
-def test_detail_i_enters_edit_mode_for_selected_task():
+def test_detail_e_enters_edit_mode_for_selected_task():
     item = PlannerItem.new(day=date(2026, 7, 10), bucket="午", text="旧文字")
     state = {"detail_open": True, "detail_task_index": 0, "status": "", "mode": "NORMAL"}
 
     updated = app._handle_detail_command(
-        state, "i", [item], lambda *_: None, lambda *_: None
+        state, "e", [item], lambda *_: None, lambda *_: None
     )
 
     assert updated["mode"] == "INSERT"
     assert updated["buffer"] == "旧文字"
     assert updated["edit_item"] == item
     assert updated["detail_open"] is True
+
+
+def test_detail_i_starts_new_task_even_when_current_bucket_has_tasks():
+    item = PlannerItem.new(day=date(2026, 7, 10), bucket="午", text="已有任务")
+    state = {
+        "detail_open": True,
+        "detail_task_index": 0,
+        "status": "",
+        "mode": "NORMAL",
+        "bucket": "午",
+    }
+
+    updated = app._handle_detail_command(
+        state, "i", [item], lambda *_: None, lambda *_: None
+    )
+
+    assert updated["mode"] == "INSERT"
+    assert updated["buffer"] == ""
+    assert updated["edit_item"] is None
+    assert updated["bucket"] == "午"
+    assert updated["status"] == "新建任务"
+
+
+def test_detail_e_reports_when_current_bucket_has_no_task_to_edit():
+    morning = PlannerItem.new(day=date(2026, 7, 10), bucket="早", text="早任务")
+    state = {
+        "detail_open": True,
+        "detail_task_index": None,
+        "status": "",
+        "mode": "NORMAL",
+        "bucket": "午",
+    }
+
+    updated = app._handle_detail_command(
+        state, "e", [morning], lambda *_: None, lambda *_: None
+    )
+
+    assert updated["mode"] == "NORMAL"
+    assert updated["status"] == "当前分区没有可编辑任务"
 
 
 def test_detail_i_starts_new_task_when_day_has_no_local_tasks():
