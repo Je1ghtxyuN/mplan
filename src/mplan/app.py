@@ -10,6 +10,7 @@ import select
 import shutil
 import sys
 import termios
+import threading
 import time
 import tty
 
@@ -57,9 +58,10 @@ def run_app(store, sync_engine) -> int:
             state = _handle_command_key(
                 state,
                 command,
-                command_func=lambda name: _execute_command(
+                command_func=lambda name: _execute_tui_command(
                     state,
                     name,
+                    store,
                     sync_engine,
                     lambda day: edit_day(store, day),
                 ),
@@ -407,12 +409,7 @@ def _execute_command(state, command: str, sync_engine, edit_func) -> dict[str, o
             report = sync_engine.sync_month(current.year, current.month)
         except Exception as exc:
             return {"status": f"同步失败: {exc}"}
-        status = (
-            f"已同步 导入{report.imported_count} 导出{report.exported_count} 更新{report.updated_count}"
-        )
-        if getattr(report, "warning", None):
-            status = f"{status} {report.warning}"
-        return {"status": status}
+        return {"status": _format_sync_report(report)}
     if command == "syncquit":
         result = _execute_command(state, "sync", sync_engine, edit_func)
         if result.get("status", "").startswith("同步失败"):
@@ -430,6 +427,77 @@ def _execute_command(state, command: str, sync_engine, edit_func) -> dict[str, o
         edit_func(state["selected"])
         return {"status": "已打开编辑器"}
     return {"status": f"未知命令: {command}"}
+
+
+def _execute_tui_command(state, command: str, store, sync_engine, edit_func):
+    if command in {"sync", "syncquit"}:
+        return _run_sync_with_spinner(
+            state,
+            sync_engine,
+            lambda progress_state: _render_app(store, sync_engine, progress_state),
+            quit_after_success=(command == "syncquit"),
+        )
+    return _execute_command(state, command, sync_engine, edit_func)
+
+
+def _run_sync_with_spinner(
+    state,
+    sync_engine,
+    render_func,
+    *,
+    quit_after_success: bool = False,
+    frame_interval: float = 0.1,
+) -> dict[str, object]:
+    frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    finished = threading.Event()
+    outcome: dict[str, object] = {}
+    current = state["current"]
+
+    def sync_worker() -> None:
+        try:
+            outcome["report"] = sync_engine.sync_month(current.year, current.month)
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            finished.set()
+
+    def render_frame(frame: str) -> None:
+        render_func(
+            {
+                **state,
+                "mode": "NORMAL",
+                "command_buffer": "",
+                "status": f"{frame} 正在同步…",
+            }
+        )
+
+    render_frame(frames[0])
+    worker = threading.Thread(target=sync_worker, name="mplan-sync", daemon=True)
+    worker.start()
+    frame_index = 1
+    while not finished.wait(frame_interval):
+        render_frame(frames[frame_index % len(frames)])
+        frame_index += 1
+    worker.join()
+
+    if "error" in outcome:
+        return {"status": f"同步失败: {outcome['error']}"}
+    result: dict[str, object] = {
+        "status": _format_sync_report(outcome["report"]),
+    }
+    if quit_after_success:
+        result["quit"] = True
+    return result
+
+
+def _format_sync_report(report) -> str:
+    status = (
+        f"已同步 导入{report.imported_count} 导出{report.exported_count} "
+        f"更新{report.updated_count}"
+    )
+    if getattr(report, "warning", None):
+        status = f"{status} {report.warning}"
+    return status
 
 
 def _collect_month_rows(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date
+import threading
 import time
 from types import SimpleNamespace
 
@@ -205,6 +206,81 @@ def test_execute_syncquit_stays_open_when_sync_fails():
     updated = app._execute_command(state, "syncquit", sync_engine, lambda day: None)
 
     assert updated == {"status": "同步失败: calendar unavailable"}
+
+
+def test_run_sync_with_spinner_renders_frames_and_returns_success():
+    release = threading.Event()
+    rendered = []
+
+    class BlockingSyncEngine:
+        def sync_month(self, year, month):
+            assert release.wait(1)
+            return SimpleNamespace(
+                imported_count=1,
+                exported_count=2,
+                updated_count=3,
+                warning=None,
+            )
+
+    def render(progress_state):
+        rendered.append(progress_state)
+        if len(rendered) >= 2:
+            release.set()
+
+    result = app._run_sync_with_spinner(
+        {
+            "current": date(2026, 7, 1),
+            "mode": "COMMAND",
+            "command_buffer": ":s",
+            "status": "",
+        },
+        BlockingSyncEngine(),
+        render,
+        frame_interval=0.001,
+    )
+
+    assert len(rendered) >= 2
+    assert rendered[0]["status"] != rendered[1]["status"]
+    assert all("正在同步" in frame["status"] for frame in rendered)
+    assert all(frame["mode"] == "NORMAL" for frame in rendered)
+    assert result == {"status": "已同步 导入1 导出2 更新3"}
+
+
+def test_run_sync_with_spinner_reports_failure_and_syncquit_does_not_exit():
+    rendered = []
+    sync_engine = SimpleNamespace(
+        sync_month=lambda *_: (_ for _ in ()).throw(RuntimeError("calendar unavailable"))
+    )
+
+    result = app._run_sync_with_spinner(
+        {"current": date(2026, 7, 1), "mode": "COMMAND", "status": ""},
+        sync_engine,
+        lambda state: rendered.append(state),
+        quit_after_success=True,
+        frame_interval=0.001,
+    )
+
+    assert rendered
+    assert "正在同步" in rendered[0]["status"]
+    assert result == {"status": "同步失败: calendar unavailable"}
+
+
+def test_run_sync_with_spinner_syncquit_exits_after_success():
+    sync_engine = SimpleNamespace(
+        sync_month=lambda *_: SimpleNamespace(
+            imported_count=0, exported_count=1, updated_count=0, warning=None
+        )
+    )
+
+    result = app._run_sync_with_spinner(
+        {"current": date(2026, 7, 1), "mode": "COMMAND", "status": ""},
+        sync_engine,
+        lambda state: None,
+        quit_after_success=True,
+        frame_interval=0.001,
+    )
+
+    assert result == {"status": "已同步 导入0 导出1 更新0", "quit": True}
 
 
 def test_handle_command_key_view_opens_overlay_and_escape_closes_it():

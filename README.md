@@ -92,6 +92,11 @@ Command mode accepts short and long forms:
 In `NORMAL` mode, `q`, `s`, `v`, `n`, and `p` do not execute directly; enter
 command mode with `:` first.
 
+TUI synchronization displays an animated `正在同步…` spinner while Calendar
+work is in progress, then replaces it with imported, exported, and updated
+counts. A failed synchronization stops the spinner and leaves the application
+open with the error message.
+
 ## Calendar Synchronization
 
 - `mplan` writes only its owned planner events to the writable calendar named
